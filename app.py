@@ -1,3 +1,4 @@
+
 """
 app.py — Production-ready single API
 Run: uvicorn app:app --host 0.0.0.0 --port 8000
@@ -32,12 +33,8 @@ load_dotenv()
 # ── CONFIG — adjust these values ─────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Anthropic
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-# LLM_MODEL         = "claude-sonnet-4-20250514"
-LLM_MODEL         = "claude-haiku-4-5-20251001"
-LLM_TIMEOUT       = 120.0   # seconds — increase if you see timeouts
+# LLM provider — configure in config.py (switch between Anthropic and OpenAI)
+from config import LLM_PROVIDER, LLM_API_URL, LLM_API_KEY, LLM_MODEL, LLM_TIMEOUT
 
 # Postgres
 DATABASE_URL = (
@@ -208,49 +205,95 @@ def _parse_json_array(raw: str) -> list[dict]:
 
 async def _llm_call(system: str, user: str, max_tokens: int = 8192, cache: bool = False) -> str:
     """
-    Call the Anthropic API.
-    Set cache=True to enable prompt caching on the system prompt (saves cost + latency on repeated calls).
-    Requires system prompt to be >= 1024 tokens to be eligible for caching.
+    Call the configured LLM provider (Anthropic or OpenAI).
+    cache=True enables prompt caching — Anthropic only, ignored for OpenAI.
     """
-    # Build system block — with or without cache_control
-    if cache:
-        system_block = [
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-    else:
-        system_block = system
-
     async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-        resp = await client.post(
-            ANTHROPIC_API_URL,
-            headers={
-                "Content-Type":        "application/json; charset=utf-8",
-                "x-api-key":           ANTHROPIC_API_KEY,
-                "anthropic-version":   "2023-06-01",
-                "anthropic-beta":      "prompt-caching-2024-07-31",
-            },
-            json={
-                "model":      LLM_MODEL,
-                "max_tokens": max_tokens,
-                "system":     system_block,
-                "messages":   [{"role": "user", "content": user}],
-            },
-        )
-        resp.raise_for_status()
-    data  = resp.json()
-    usage = data.get("usage", {})
-    logger.info(
-        "Tokens — input: %d | cache_created: %d | cache_read: %d | output: %d",
-        usage.get("input_tokens", 0),
-        usage.get("cache_creation_input_tokens", 0),
-        usage.get("cache_read_input_tokens", 0),
-        usage.get("output_tokens", 0),
-    )
-    return data["content"][0]["text"].strip()
+
+        if LLM_PROVIDER == "anthropic":
+            system_block = (
+                [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+                if cache else system
+            )
+            resp = await client.post(
+                LLM_API_URL,
+                headers={
+                    "Content-Type":      "application/json; charset=utf-8",
+                    "x-api-key":         LLM_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta":    "prompt-caching-2024-07-31",
+                },
+                json={
+                    "model":      LLM_MODEL,
+                    "max_tokens": max_tokens,
+                    "system":     system_block,
+                    "messages":   [{"role": "user", "content": user}],
+                },
+            )
+            resp.raise_for_status()
+            data  = resp.json()
+            usage = data.get("usage", {})
+            logger.info(
+                "Tokens [anthropic] — input: %d | cache_created: %d | cache_read: %d | output: %d",
+                usage.get("input_tokens", 0),
+                usage.get("cache_creation_input_tokens", 0),
+                usage.get("cache_read_input_tokens", 0),
+                usage.get("output_tokens", 0),
+            )
+            return data["content"][0]["text"].strip()
+
+        elif LLM_PROVIDER == "openai":
+            # GPT-5.4 family requires /v1/responses endpoint
+            # GPT-4.1 family uses /v1/chat/completions
+            is_gpt5 = LLM_MODEL.startswith("gpt-5")
+            headers = {
+                "Content-Type":  "application/json; charset=utf-8",
+                "Authorization": f"Bearer {LLM_API_KEY}",
+            }
+            if is_gpt5:
+                url  = "https://api.openai.com/v1/responses"
+                body = {
+                    "model": LLM_MODEL,
+                    "input": [
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": user},
+                    ],
+                    "max_output_tokens": max_tokens,
+                    "service_tier": "priority",  # Add this line to use the priority tier for faster responses
+                }
+            else:
+                url  = LLM_API_URL
+                body = {
+                    "model":      LLM_MODEL,
+                    "max_tokens": max_tokens,
+                    "messages":   [
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": user},
+                    ],
+                }
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data  = resp.json()
+            usage = data.get("usage", {})
+            if is_gpt5:
+                logger.info(
+                    "Tokens [openai gpt5] — input: %d | output: %d",
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                )
+                # Responses API returns output as a list of content blocks
+                return data["output"][-1]["content"][0]["text"].strip()
+            else:
+                logger.info(
+                    "Tokens [openai] — prompt: %d | completion: %d | total: %d",
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                    usage.get("total_tokens", 0),
+                )
+                return data["choices"][0]["message"]["content"].strip()
+
+        else:
+            raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r}")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
