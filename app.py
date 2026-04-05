@@ -35,8 +35,8 @@ load_dotenv()
 # Anthropic
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-LLM_MODEL         = "claude-sonnet-4-20250514"
-# LLM_MODEL         = "claude-haiku-4-5-20251001"
+# LLM_MODEL         = "claude-sonnet-4-20250514"
+LLM_MODEL         = "claude-haiku-4-5-20251001"
 LLM_TIMEOUT       = 120.0   # seconds — increase if you see timeouts
 
 # Postgres
