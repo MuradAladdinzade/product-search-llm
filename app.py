@@ -259,7 +259,7 @@ async def _llm_call(system: str, user: str, max_tokens: int = 8192, cache: bool 
                         {"role": "user",   "content": user},
                     ],
                     "max_output_tokens": max_tokens,
-                    "service_tier": "priority",  # Add this line to use the priority tier for faster responses
+                    # "service_tier": "priority",  # Add this line to use the priority tier for faster responses
                 }
             else:
                 url  = LLM_API_URL
