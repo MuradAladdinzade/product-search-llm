@@ -11,6 +11,7 @@ COPY app.py .
 COPY sim_rules.py .
 COPY color_overrides.py .
 COPY map_colors.py .
+COPY config.py .
  
 EXPOSE 8000
  
