@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, field_validator
 
 from sim_rules import SimCardType, resolve_sim_type
+from color_overrides import OVERRIDES as COLOR_OVERRIDES
 
 load_dotenv()
 
@@ -34,8 +35,8 @@ load_dotenv()
 # Anthropic
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-# LLM_MODEL         = "claude-sonnet-4-20250514"
-LLM_MODEL         = "claude-haiku-4-5-20251001"
+LLM_MODEL         = "claude-sonnet-4-20250514"
+# LLM_MODEL         = "claude-haiku-4-5-20251001"
 LLM_TIMEOUT       = 120.0   # seconds — increase if you see timeouts
 
 # Postgres
@@ -129,12 +130,22 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "size":             "...",  // Storage as <N>GB or <N>TB — same as LLM_storage but always present if determinable
   "color":            "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
-                              //   "esim"/"есим"            → "ESIM_ONLY_SINGLE"
-                              //   "2sim"/"2 сим"           → "PHYSICAL_DUAL"
-                              //   "1sim"/"1 сим"           → "PHYSICAL_SINGLE_WITHOUT_ESIM"
                               //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
-                              //   Nothing mentioned        → null (server will resolve from country)
+                              //   "sim-esim"/"сим-есим" → "PHYSICAL_PLUS_ESIM"
+                              //   "esim-sim"/"есим-сим" → "PHYSICAL_PLUS_ESIM"
+                              //   "1sim/esim"/"сим/есим" → "PHYSICAL_PLUS_ESIM"
+                              //   "1sim"/"1сим"           → "PHYSICAL_PLUS_ESIM"
+                              //   "1 sim"/"1 сим"           → "PHYSICAL_PLUS_ESIM"
+                              //   "1sim"+"esim" / "sim-esim" / "esim-sim"     → "PHYSICAL_PLUS_ESIM"  
+                              //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
+                              //   "1sim"/"1 сим" alone                         → "PHYSICAL_PLUS_ESIM" ← check FIRST
+                              //   "esim"/"есим"/"только esim"/"только есим" alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
+                              //   "2 sim"/"2 сим"           → "PHYSICAL_DUAL" 
+                              //   "2sim"/"2сим"                               → "PHYSICAL_DUAL"
+                              //   any other sim mention not covered above      → "PHYSICAL_PLUS_ESIM"
+                              //   Nothing mentioned                            → null (server resolves from country)
                               //   Always null for non-iPhones
+
 }
 
 === REQUESTEDTEXT ===
@@ -147,7 +158,7 @@ Default 1. x2 / 2шт / 35600-2 (price-qty) / 31.5x4 (price 31500, qty 4)
 
 === PRICE ===
 Default 0. "35,3"→35300 / "31.5x4"→price 31500 qty 4 / "3500 дают 3400"→3400
-If multiple prices appear, take the first one. e.g. "54500 1шт ? 54700" → price: 54500
+If multiple prices appear, take the lowest one. e.g. "54500 1шт ? 54700" → price: 54500
 
 === EXAMPLES ===
 Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
@@ -244,40 +255,21 @@ async def _llm_call(system: str, user: str, max_tokens: int = 8192, cache: bool 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-async def fetch_color_candidates(
+async def fetch_official_colors(
     pool: asyncpg.Pool,
-    product_line: Optional[str],
     model_name: Optional[str],
-    category: Optional[str],
-    storage: Optional[str]   = None,
-    country_code: Optional[str] = None,
-    sim_type: Optional[str]  = None,
-) -> list[dict]:
-    """
-    Query DB for color candidates using ILIKE (contains) for text fields,
-    exact match for country, sim_type, storage.
-    ⚠️  ADJUST the WHERE clause to match your schema if needed.
-    """
+) -> list[str]:
+    """Query ai_product.iphone_colors for official color names for this model."""
+    if not model_name:
+        return []
     async with pool.acquire() as conn:
-        rows = await conn.fetch(f"""
-            SELECT DISTINCT {DB_COL_COLOR} AS color
-            FROM   {DB_TABLE}
-            WHERE  {DB_COL_COLOR} IS NOT NULL
-              AND  ($1::text IS NULL OR {DB_COL_PRODUCT_LINE} ILIKE $1)
-              AND  ($2::text IS NULL OR {DB_COL_MODEL_NAME}   ILIKE $2)
-              AND  ($3::text IS NULL OR {DB_COL_CATEGORY}     ILIKE $3)
-              AND  ($4::text IS NULL OR {DB_COL_STORAGE}      = $4)
-              AND  ($5::text IS NULL OR {DB_COL_COUNTRY}      = $5)
-              AND  ($6::text IS NULL OR {DB_COL_SIM_TYPE}     = $6)
-        """,
-            f"%{product_line}%" if product_line else None,
-            f"%{model_name}%"   if model_name   else None,
-            f"%{category}%"     if category      else None,
-            storage,
-            country_code,
-            sim_type,
-        )
-    return [{"color": r["color"]} for r in rows]
+        rows = await conn.fetch("""
+            SELECT DISTINCT official_color
+            FROM   ai_product.iphone_colors
+            WHERE  "LLM_model_name" = $1
+              AND  official_color IS NOT NULL
+        """, model_name)
+    return [r["official_color"] for r in rows]
 
 
 # ── Core pipeline steps ───────────────────────────────────────────────────────
@@ -290,51 +282,60 @@ async def step1_extract(text: str) -> list[dict]:
 
 async def step2_match_color(
     pool: asyncpg.Pool,
-    product_line: Optional[str],
     model_name: Optional[str],
-    category: Optional[str],
     requested_text: str,
     color_en: Optional[str],
-    storage: Optional[str]      = None,
-    country_code: Optional[str] = None,
-    sim_type: Optional[str]     = None,
 ) -> Optional[str]:
     """
-    Query DB for candidates with all available filters, ask LLM to pick best color.
-    Falls back to broader query if no candidates found with strict filters.
-    Returns matched_color from DB candidates.
+    1. Check OVERRIDES dict (instant, no API call)
+    2. Query iphone_colors table + LLM picks best match
     """
-    # Try strict match first (with storage, country, sim_type)
-    candidates = await fetch_color_candidates(
-        pool, product_line, model_name, category,
-        storage=storage, country_code=country_code, sim_type=sim_type
-    )
-    # Fallback: drop storage, country, sim_type if no results
-    if not candidates:
-        logger.warning("No candidates with strict filters, falling back for %s %s", product_line, model_name)
-        candidates = await fetch_color_candidates(pool, product_line, model_name, category)
-    if not candidates:
-        logger.warning("No DB candidates at all for %s / %s / %s", product_line, model_name, category)
+    if not color_en and not requested_text:
+        return None
+
+    model_key = (model_name or "").strip().lower()
+    color_key = (color_en or "").strip().lower()
+
+    override = COLOR_OVERRIDES.get((model_key, color_key))
+    if override:
+            return override
+
+    official_colors = await fetch_official_colors(pool, model_name)
+    if not official_colors:
+        logger.warning("No official colors for model: %s", model_name)
         return None
 
     user_msg = json.dumps({
         "requested_text":     requested_text,
         "user_color_english": color_en,
-        "available_colors":   candidates,
+        "available_colors":   official_colors,
     }, ensure_ascii=False)
 
-    raw = await _llm_call(COLOR_PROMPT, user_msg, max_tokens=64)
+    for attempt in range(3):
+        try:
+            raw = await _llm_call(COLOR_PROMPT, user_msg, max_tokens=64)
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                wait = 10 * (attempt + 1)
+                logger.warning("Rate limited, retrying in %ds...", wait)
+                await asyncio.sleep(wait)
+            else:
+                raise
     if raw.startswith("```"):
         raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```")).strip()
-
-    matched_color = json.loads(raw).get("matched_color")
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    matched_color = json.loads(raw[start:end+1]).get("matched_color")
     return matched_color
 
 
 def _is_iphone(product: dict) -> bool:
-    brand = (product.get("LLM_brand") or "").lower()
-    line  = (product.get("LLM_product_line") or "").lower()
-    return brand == "apple" and "iphone" in line
+    brand    = (product.get("LLM_brand") or "").lower()
+    line     = (product.get("LLM_product_line") or "").lower()
+    category = (product.get("LLM_category") or "").lower()
+    return brand == "apple" and "iphone" in line and category == "phone"
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -412,14 +413,9 @@ async def parse(
             try:
                 p.matched_color = await step2_match_color(
                     _pool,
-                    p.LLM_product_line,
                     p.LLM_model_name,
-                    p.LLM_category,
                     p.requestedText,
                     p.LLM_color_en,
-                    storage=p.LLM_storage,
-                    country_code=p.countryCode,
-                    sim_type=p.simType.value if p.simType else None,
                 )
             except Exception as e:
                 logger.error("Step 2 color match failed for %s: %s", p.requestedText, e)

@@ -1,10 +1,10 @@
+import re
 from enum import Enum
 from typing import Optional
 
 
 class SimCardType(str, Enum):
-    PHYSICAL_SINGLE             = "PHYSICAL_SINGLE"
-    PHYSICAL_SINGLE_WITHOUT_ESIM = "PHYSICAL_SINGLE_WITHOUT_ESIM"  # no eSIM slot
+    PHYSICAL_SINGLE = "PHYSICAL_SINGLE"  # no eSIM slot
     PHYSICAL_DUAL               = "PHYSICAL_DUAL"
     ESIM_ONLY_SINGLE            = "ESIM_ONLY_SINGLE"
     PHYSICAL_PLUS_ESIM          = "PHYSICAL_PLUS_ESIM"
@@ -74,10 +74,10 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
     ("12 mini", "AE"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("12 mini", "AU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("12 mini", "CA"): SimCardType.PHYSICAL_PLUS_ESIM,
-    ("12 mini", "CN"): SimCardType.PHYSICAL_SINGLE_WITHOUT_ESIM,
+    ("12 mini", "CN"): SimCardType.PHYSICAL_SINGLE,
     ("12 mini", "EU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("12 mini", "GB"): SimCardType.PHYSICAL_PLUS_ESIM,
-    ("12 mini", "HK"): SimCardType.PHYSICAL_SINGLE_WITHOUT_ESIM,
+    ("12 mini", "HK"): SimCardType.PHYSICAL_SINGLE,
     ("12 mini", "IN"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("12 mini", "JP"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("12 mini", "KR"): SimCardType.PHYSICAL_PLUS_ESIM,
@@ -130,10 +130,10 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
     ("13 mini", "AE"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("13 mini", "AU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("13 mini", "CA"): SimCardType.PHYSICAL_PLUS_ESIM,
-    ("13 mini", "CN"): SimCardType.PHYSICAL_SINGLE_WITHOUT_ESIM,
+    ("13 mini", "CN"): SimCardType.PHYSICAL_SINGLE,
     ("13 mini", "EU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("13 mini", "GB"): SimCardType.PHYSICAL_PLUS_ESIM,
-    ("13 mini", "HK"): SimCardType.PHYSICAL_SINGLE_WITHOUT_ESIM,
+    ("13 mini", "HK"): SimCardType.PHYSICAL_SINGLE,
     ("13 mini", "IN"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("13 mini", "JP"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("13 mini", "KR"): SimCardType.PHYSICAL_PLUS_ESIM,
@@ -438,7 +438,7 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
     ("se", "AE"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("se", "AU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("se", "CA"): SimCardType.PHYSICAL_PLUS_ESIM,
-    ("se", "CN"): SimCardType.PHYSICAL_SINGLE_WITHOUT_ESIM,
+    ("se", "CN"): SimCardType.PHYSICAL_SINGLE,
     ("se", "EU"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("se", "GB"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("se", "HK"): SimCardType.PHYSICAL_PLUS_ESIM,
@@ -469,13 +469,25 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
 
 def _from_text(text: str) -> Optional[SimCardType]:
     t, c = text.lower(), text.lower().replace(" ", "")
-    has_esim        = "esim" in t or "есим" in t
-    has_1sim        = "1sim" in c or "1сим" in c
-    has_2sim        = "2sim" in c or "2сим" in c
-    if (has_1sim or has_2sim) and has_esim: return SimCardType.PHYSICAL_PLUS_ESIM
-    if has_esim:                            return SimCardType.ESIM_ONLY_SINGLE
-    if has_2sim:                            return SimCardType.PHYSICAL_DUAL
-    if has_1sim:                            return SimCardType.PHYSICAL_PLUS_ESIM
+    has_esim = "esim" in t or "есим" in t or "только esim" in t or "только есим" in t or "толькоesim" in c or "толькоесим" in c
+    # "sim"/"сим" alone — not preceded by a digit or "e" (to avoid matching "esim", "2sim")
+    has_bare_sim = bool(re.search(r'(?<![0-9e])sim', t) or re.search(r'(?<![0-9])сим', t))
+    has_1sim = "1sim" in c or "1сим" in c or has_bare_sim
+    has_2sim = "2sim" in c or "2сим" in c
+
+    # Combined sim+esim patterns (check FIRST before esim-only)
+    has_sim_plus_esim = (
+        (has_1sim and has_esim)
+        or "sim-esim" in c or "esim-sim" in c
+        or "sim/esim" in c or "esim/sim" in c
+        or "сим-есим" in c or "есим-сим" in c
+        or "сим/есим" in c or "есим/сим" in c
+    )
+
+    if has_2sim:          return SimCardType.PHYSICAL_DUAL
+    if has_sim_plus_esim: return SimCardType.PHYSICAL_PLUS_ESIM
+    if has_esim:          return SimCardType.ESIM_ONLY_SINGLE
+    if has_1sim:          return SimCardType.PHYSICAL_PLUS_ESIM
     return None
 
 
@@ -537,11 +549,11 @@ if __name__ == "__main__":
         ("iPhone", "11",             "US", "",                 "PHYSICAL_PLUS_ESIM", False),
         ("iPhone", "11",             "CN", "",                 "PHYSICAL_DUAL",      False),
         ("iPhone", "11 Pro",         "US", "",                 "PHYSICAL_PLUS_ESIM", False),
-        ("iPhone", "12 Mini",        "CN", "",                 "PHYSICAL_SINGLE_WITHOUT_ESIM", False),
+        ("iPhone", "12 Mini",        "CN", "",                 "PHYSICAL_SINGLE", False),
         ("iPhone", "13",             "CN", "",                 "PHYSICAL_DUAL",      False),
         ("iPhone", "13",             "IN", "",                 "PHYSICAL_PLUS_ESIM", False),
         ("iPhone", "13",             None, "",                 None,                 False),
-        ("iPhone", "13 Mini",        "HK", "",                 "PHYSICAL_SINGLE_WITHOUT_ESIM", False),
+        ("iPhone", "13 Mini",        "HK", "",                 "PHYSICAL_SINGLE", False),
         ("iPhone", "14",             "US", "",                 "ESIM_ONLY_SINGLE",   False),
         ("iPhone", "14",             "IN", "",                 "PHYSICAL_PLUS_ESIM", False),
         ("iPhone", "14",             "HK", "",                 "PHYSICAL_DUAL",      False),
@@ -570,7 +582,7 @@ if __name__ == "__main__":
         ("iPhone", "17E",            "US", "",                 "ESIM_ONLY_SINGLE",   False),
         ("iPhone", "17E",            "IN", "",                 "PHYSICAL_PLUS_ESIM", False),
         ("iPhone", "SE",             "US", "",                 "PHYSICAL_PLUS_ESIM", False),
-        ("iPhone", "SE",             "CN", "",                 "PHYSICAL_SINGLE_WITHOUT_ESIM", False),
+        ("iPhone", "SE",             "CN", "",                 "PHYSICAL_SINGLE", False),
         ("Samsung",     None,        "US", "",                 None,                 False),
         ("Apple Watch", None,        "US", "",                 None,                 False),
     ]
