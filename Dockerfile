@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app files
 COPY app.py .
 COPY sim_rules.py .
+COPY color_overrides.py .
+COPY map_colors.py .
  
 EXPOSE 8000
  
