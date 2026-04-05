@@ -110,11 +110,11 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "quantity":         1,      // Positive integer, default 1
   "price":            0,      // Float, default 0
   "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything
-  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line
+  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY
   "LLM_brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
   "LLM_product_line": "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
   "LLM_category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
-  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55"
+  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55" | "13 Mini" | "14 Plus" | "15 Pro Max"
   "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
   "LLM_model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
   "LLM_storage":      "...",  // Storage as <N>GB or <N>TB | null
