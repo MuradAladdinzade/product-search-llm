@@ -137,10 +137,11 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
                               //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
                               //   "1sim"/"1 сим" alone                         → "PHYSICAL_PLUS_ESIM" ← check FIRST
                               //   "esim"/"есим"/"только esim"/"только есим" alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
+                              //   "Iphone 17 Air"/"Айфон 17 Эйр"/"Iphone Air" → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
                               //   "2 sim"/"2 сим"           → "PHYSICAL_DUAL" 
                               //   "2sim"/"2сим"                               → "PHYSICAL_DUAL"
                               //   any other sim mention not covered above      → "PHYSICAL_PLUS_ESIM"
-                              //   Nothing mentioned                            → null (server resolves from country)
+                              //   Nothing mentioned                            → "PHYSICAL_PLUS_ESIM"
                               //   Always null for non-iPhones
 
 }
