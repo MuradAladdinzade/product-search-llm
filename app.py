@@ -114,8 +114,8 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "LLM_brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
   "LLM_product_line": "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
   "LLM_category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
-  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55" | "13 Mini" | "14 Plus" | "15 Pro Max"
-  "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
+  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55" | "13 Mini" | "14 Plus" | "15 Pro Max" | "17e" | "S25 Ultra" | "17 Air"
+  "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null 
   "LLM_model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
   "LLM_storage":      "...",  // Storage as <N>GB or <N>TB | null
   "LLM_ram":          "...",  // RAM only if separate from storage: "8GB" | null
@@ -146,10 +146,6 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
 
 }
 
-=== REQUESTEDTEXT ===
-Keep exactly as the user wrote it — do NOT strip, clean, or modify anything.
-Copy the raw text for this product as-is, including typos, Russian words, emojis, spacing.
-
 === QUANTITY ===
 Default 1. x2 / 2шт / 35600-2 (price-qty) / 31.5x4 (price 31500, qty 4)
 "green-2" = color green qty 2. "72600-2" = price 72600 qty 2.
@@ -157,6 +153,17 @@ Default 1. x2 / 2шт / 35600-2 (price-qty) / 31.5x4 (price 31500, qty 4)
 === PRICE ===
 Default 0. "35,3"→35300 / "31.5x4"→price 31500 qty 4 / "3500 дают 3400"→3400
 If multiple prices appear, take the lowest one. e.g. "54500 1шт ? 54700" → price: 54500
+
+=== REQUESTEDTEXT ===
+Keep exactly as the user wrote it — do NOT strip, clean, or modify anything.
+Copy the raw text for this product as-is, including typos, Russian words, emojis, spacing.
+
+=== LLM_variant ===
+LLM_model_name->LLM_variant: LLM_variant should contain non-numeric part of LLM_model_name 
+"16 Pro"->Pro | "55"->Null | "13 Mini"->Mini | "14 Plus"->Plus | "15 Pro Max"->Pro Max | "17e"->e | "S25 Ultra"->Ultra | "16e"->e
+
+
+
 
 === EXAMPLES ===
 Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
