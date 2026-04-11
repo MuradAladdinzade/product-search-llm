@@ -120,7 +120,7 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "LLM_model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
   "LLM_storage":      "...",  // Storage as <N>GB or <N>TB | null
   "LLM_ram":          "...",  // RAM only if separate from storage: "8GB" | null
-  "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | null
+  "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
   "LLM_year":         "...",  // Year if mentioned: "2024" | null
   "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
   "productType":      "...",  // Top-level type: iPhone | MacBook | iPad | Samsung | Apple Watch | Airpods | Dyson | Other
