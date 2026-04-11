@@ -46,14 +46,15 @@ DB_POOL_MIN  = 2    # min connections in pool
 DB_POOL_MAX  = 10   # max connections in pool
 
 # DB query — adjust table/column names to match your schema
+# DB query — adjust table/column names to match your schema
 DB_TABLE              = "ai_product.products"
-DB_COL_PRODUCT_LINE   = '"LLM_product_line"'
-DB_COL_MODEL_NAME     = '"LLM_model_name"'
-DB_COL_CATEGORY       = '"LLM_category"'
-DB_COL_STORAGE        = '"LLM_storage"'
-DB_COL_COUNTRY        = "extracted_country_code"
-DB_COL_SIM_TYPE       = "new_sim_card_type"
-DB_COL_COLOR          = '"LLM_color_en"'
+DB_COL_PRODUCT_LINE   = "product_type"
+DB_COL_MODEL_NAME     = "model"
+DB_COL_CATEGORY       = "category"
+DB_COL_STORAGE        = "size"
+DB_COL_COUNTRY        = "country_code"
+DB_COL_SIM_TYPE       = "sim_card_type"
+DB_COL_COLOR          = "color"
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -310,17 +311,17 @@ async def fetch_official_colors(
     pool: asyncpg.Pool,
     model_name: Optional[str],
 ) -> list[str]:
-    """Query ai_product.iphone_colors for official color names for this model."""
+    """Query ai_product.products for official color names for this model."""
     if not model_name:
         return []
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT DISTINCT official_color
-            FROM   ai_product.iphone_colors
+            SELECT DISTINCT color
+            FROM   ai_product.products
             WHERE  "LLM_model_name" = $1
-              AND  official_color IS NOT NULL
+              AND  color IS NOT NULL
         """, model_name)
-    return [r["official_color"] for r in rows]
+    return [r["color"] for r in rows]
 
 
 # ── Core pipeline steps ───────────────────────────────────────────────────────
@@ -339,7 +340,7 @@ async def step2_match_color(
 ) -> Optional[str]:
     """
     1. Check OVERRIDES dict (instant, no API call)
-    2. Query iphone_colors table + LLM picks best match
+    2. Query products table + LLM picks best match
     """
     if not color_en and not requested_text:
         return None
