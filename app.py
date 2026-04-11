@@ -69,7 +69,6 @@ logger = logging.getLogger("app")
 class EnrichedProduct(BaseModel):
     # Core fields (matches legacy format)
     productName:      Optional[str] = None
-    productType:      Optional[str] = None
     model:            Optional[str] = None
     size:             Optional[str] = None
     color_from_text: Optional[str] = None
@@ -119,7 +118,6 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
   "prod_year":         "...",  // Year if mentioned: "2024" | null
   "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
-  "productType":      "...",  // Top-level type: iPhone | MacBook | iPad | Samsung | Apple Watch | Airpods | Dyson | Other
   "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad:   "Mini 7" | "Air" | "Pro 13" | Other:  "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
   "size":             "...",  // Storage as <N>GB or <N>TB — same as storage but always present if determinable
   "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
@@ -162,17 +160,17 @@ model->variant: variant should contain non-numeric part of model
 
 === EXAMPLES ===
 Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
-{"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","productType":"iPad","size":"128GB","color_from_text":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","countryCode":null,"simType":null,"brand":"Apple","product_type":"iPad","category":"tablet","model":"Mini 7","variant":"Mini","model_code":"MXN63","size":"128GB","ram":null,"LLM_color_en":"Space Gray","prod_year":null}
+{"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","size":"128GB","color_from_text":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","countryCode":null,"simType":null,"brand":"Apple","product_type":"iPad","category":"tablet","model":"Mini 7","variant":"Mini","model_code":"MXN63","size":"128GB","ram":null,"LLM_color_en":"Space Gray","prod_year":null}
 
 Input: "Pencil Pro 2025 MX2D3 8500"
-{"productName":"Pencil Pro 2025 MX2D3","productType":"Pencil","size":null,"color_from_text":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3","countryCode":null,"simType":null,"brand":"Apple","product_type":"Pencil","category":"accessory","model":null,"variant":"Pro","model_code":"MX2D3","size":null,"ram":null,"LLM_color_en":null,"prod_year":"2025"}
+{"productName":"Pencil Pro 2025 MX2D3","size":null,"color_from_text":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3","countryCode":null,"simType":null,"brand":"Apple","product_type":"Pencil","category":"accessory","model":null,"variant":"Pro","model_code":"MX2D3","size":null,"ram":null,"LLM_color_en":null,"prod_year":"2025"}
 
 Input: "16 Pro 256 Black 🇮🇳 54000"
-{"productName":"iPhone 16 Pro 256GB Black","productType":"iPhone","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"brand":"Apple","product_type":"iPhone","category":"phone","model":"16 Pro","variant":"Pro","model_code":null,"size":"256GB","ram":null,"LLM_color_en":"Black","prod_year":null}
+{"productName":"iPhone 16 Pro 256GB Black","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"brand":"Apple","product_type":"iPhone","category":"phone","model":"16 Pro","variant":"Pro","model_code":null,"size":"256GB","ram":null,"LLM_color_en":"Black","prod_year":null}
 
 === MODEL RULES ===
 16E ≠ 16 (model: "16E"). PRO→Pro, PLUS→Plus, MAX→Max. N+→"N Plus": 15+→"15 Plus" | 16+→"16 Plus" | 17+→"17 Plus".
-iPhone 16Max → model: "16 Pro Max", variant: "Pro Max", iPhone never releases a "Max" without "Pro", so if "Max" is mentioned, assume "Pro Max". If "Pro" and "Max" are both mentioned, it's also "Pro Max". If only "Max" is mentioned, it's still "Pro Max".
+iPhone 16Max → model: "16 Pro Max", variant: "Pro Max", not "16 Max". iPhone never releases a "Max" variant without "Pro". If "Max" is mentioned → always assume "Pro Max".
 "Air" alone → iPhone 17 Air (product_type: "iPhone", model: "17 Air").
 "Air 7"/"iPad Air" → iPad (product_type: "iPad", model: null).
 Samsung: "Galaxy A5 SM-A520F 3GB/32GB" → model:"A5", code:"SM-A520F", ram:"3GB", storage:"32GB"
@@ -315,6 +313,8 @@ async def fetch_official_colors(
             FROM   ai_product.products
             WHERE  "model" = $1
               AND  color IS NOT NULL
+              AND product_type ILIKE 'iPhone'
+              AND category ILIKE 'phone'
         """, model_name)
     return [r["color"] for r in rows]
 
