@@ -191,6 +191,8 @@ Return ONLY: {"matched_color": "..."}
 - Translate user color to English first: "белый"→White | "чёрный"→Black | "синий"→Blue | "серый"→Gray | "розовый"→Pink | "зелёный"→Green | "фиолетовый"→Purple
 - Always return the closest match, never null
 - Partial ok: "black" → "Black Titanium" | "midnight" → "Midnight Black" | "белый" → "White Titanium"
+- White looks like "startlight" or "silver"
+- Black looks like "midnight" or "space black"
 """
 
 

@@ -62,10 +62,12 @@ OVERRIDES: dict[tuple[str, str], str] = {
     # 14
     ("14", "blue"): "Blue",
     ("14", "deep purple"): "Purple",
+    ("14", "black"): "Midnight",
     ("14", "midnight"): "Midnight",
     ("14", "purple"): "Purple",
     ("14", "red"): "(PRODUCT) RED",
     ("14", "starlight"): "Starlight",
+    ("14", "white"): "Starlight",
     ("14", "yellow"): "Yellow",
     # 14 Plus
     ("14 plus", "black"): "Midnight",
