@@ -110,13 +110,13 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
 {
   "quantity":         1,      // Positive integer, default 1
   "price":            0,      // Float, default 0
-  "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything
+  "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything or omit anything
   "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY
   "LLM_brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
   "LLM_product_line": "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
   "LLM_category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
-  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55" | "13 Mini" | "14 Plus" | "15 Pro Max" | "17e" | "S25 Ultra" | "17 Air"
-  "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null 
+  "LLM_model_name":   "...",  // Model WITHOUT brand/line: "16 Pro" | "A56" | "Pro 14" | "55" | "13 Mini" | "14 Plus" | "15 Pro Max" | "17e" | "S25 Ultra" | "17 Air" | "16+" -> "16 Plus" | "iPad Air" -> "Air"
+  "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
   "LLM_model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
   "LLM_storage":      "...",  // Storage as <N>GB or <N>TB | null
   "LLM_ram":          "...",  // RAM only if separate from storage: "8GB" | null
@@ -162,8 +162,6 @@ Copy the raw text for this product as-is, including typos, Russian words, emojis
 === LLM_variant ===
 LLM_model_name->LLM_variant: LLM_variant should contain non-numeric part of LLM_model_name 
 "16 Pro"->Pro | "55"->Null | "13 Mini"->Mini | "14 Plus"->Plus | "15 Pro Max"->Pro Max | "17e"->e | "S25 Ultra"->Ultra | "16e"->e
-
-
 
 
 === EXAMPLES ===
