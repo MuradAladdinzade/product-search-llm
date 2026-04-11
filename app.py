@@ -72,7 +72,7 @@ class EnrichedProduct(BaseModel):
     productType:      Optional[str] = None
     model:            Optional[str] = None
     size:             Optional[str] = None
-    color:            Optional[str] = None
+    color_from_text: Optional[str] = None
     # Order info
     quantity:         int           = 1
     price:            float         = 0.0
@@ -82,15 +82,14 @@ class EnrichedProduct(BaseModel):
     simType:          Optional[SimCardType] = None
     simConflict:      bool          = False
     # LLM extracted fields
-    LLM_brand:        Optional[str] = None
+    brand:        Optional[str] = None
     product_type:     Optional[str] = None
-    LLM_category:     Optional[str] = None
-    LLM_variant:      Optional[str] = None
-    LLM_model_code:   Optional[str] = None
-    LLM_storage:      Optional[str] = None
-    LLM_ram:          Optional[str] = None
+    category:     Optional[str] = None
+    variant:      Optional[str] = None
+    model_code:   Optional[str] = None
+    ram:          Optional[str] = None
     LLM_color_en:     Optional[str] = None
-    LLM_year:         Optional[str] = None
+    prod_year:         Optional[str] = None
     # Color match (iPhones only)
     matched_color:    Optional[str] = None
 
@@ -110,20 +109,20 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "price":            0,      // Float, default 0
   "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything or omit anything (don't do: 17+ 128 Черный 1  64 500 -> requestedText: "17 128 Черный 1  64 500", keep it as is: "17+ 128 Черный 1  64 500")
   "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY
-  "LLM_brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
+  "brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
   "product_type":     "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
-  "LLM_category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
-  "LLM_variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
-  "LLM_model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
-  "LLM_storage":      "...",  // Storage as <N>GB or <N>TB | null
-  "LLM_ram":          "...",  // RAM only if separate from storage: "8GB" | null
+  "category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
+  "variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
+  "model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
+  "size":         "...",  // Storage as <N>GB or <N>TB | null — same field as size below, only fill once
+  "ram":          "...",  // RAM only if separate from storage: "8GB" | null
   "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
-  "LLM_year":         "...",  // Year if mentioned: "2024" | null
+  "prod_year":         "...",  // Year if mentioned: "2024" | null
   "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
   "productType":      "...",  // Top-level type: iPhone | MacBook | iPad | Samsung | Apple Watch | Airpods | Dyson | Other
   "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad:   "Mini 7" | "Air" | "Pro 13" | Other:  "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
-  "size":             "...",  // Storage as <N>GB or <N>TB — same as LLM_storage but always present if determinable
-  "color":            "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
+  "size":             "...",  // Storage as <N>GB or <N>TB — same as storage but always present if determinable
+  "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
                               //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
                               //   "sim-esim"/"сим-есим" → "PHYSICAL_PLUS_ESIM"
@@ -156,24 +155,24 @@ If multiple prices appear, take the lowest one. e.g. "54500 1шт ? 54700" → p
 Keep exactly as the user wrote it — do NOT strip, clean, or modify anything.
 Copy the raw text for this product as-is, including typos, Russian words, emojis, spacing.
 
-=== LLM_variant ===
-model->LLM_variant: LLM_variant should contain non-numeric part of model
+=== variant ===
+model->variant: variant should contain non-numeric part of model
 "16 Pro"->Pro | "55"->Null | "13 Mini"->Mini | "14 Plus"->Plus | "15 Pro Max"->Pro Max | "17e"->e | "S25 Ultra"->Ultra | "16e"->e
 
 
 === EXAMPLES ===
 Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
-{"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","productType":"iPad","size":"128GB","color":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","countryCode":null,"simType":null,"LLM_brand":"Apple","product_type":"iPad","LLM_category":"tablet","model":"Mini 7","LLM_variant":"Mini","LLM_model_code":"MXN63","LLM_storage":"128GB","LLM_ram":null,"LLM_color_en":"Space Gray","LLM_year":null}
+{"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","productType":"iPad","size":"128GB","color_from_text":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","countryCode":null,"simType":null,"brand":"Apple","product_type":"iPad","category":"tablet","model":"Mini 7","variant":"Mini","model_code":"MXN63","size":"128GB","ram":null,"LLM_color_en":"Space Gray","prod_year":null}
 
 Input: "Pencil Pro 2025 MX2D3 8500"
-{"productName":"Pencil Pro 2025 MX2D3","productType":"Pencil","size":null,"color":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3","countryCode":null,"simType":null,"LLM_brand":"Apple","product_type":"Pencil","LLM_category":"accessory","model":null,"LLM_variant":"Pro","LLM_model_code":"MX2D3","LLM_storage":null,"LLM_ram":null,"LLM_color_en":null,"LLM_year":"2025"}
+{"productName":"Pencil Pro 2025 MX2D3","productType":"Pencil","size":null,"color_from_text":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3","countryCode":null,"simType":null,"brand":"Apple","product_type":"Pencil","category":"accessory","model":null,"variant":"Pro","model_code":"MX2D3","size":null,"ram":null,"LLM_color_en":null,"prod_year":"2025"}
 
 Input: "16 Pro 256 Black 🇮🇳 54000"
-{"productName":"iPhone 16 Pro 256GB Black","productType":"iPhone","size":"256GB","color":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"LLM_brand":"Apple","product_type":"iPhone","LLM_category":"phone","model":"16 Pro","LLM_variant":"Pro","LLM_model_code":null,"LLM_storage":"256GB","LLM_ram":null,"LLM_color_en":"Black","LLM_year":null}
+{"productName":"iPhone 16 Pro 256GB Black","productType":"iPhone","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"brand":"Apple","product_type":"iPhone","category":"phone","model":"16 Pro","variant":"Pro","model_code":null,"size":"256GB","ram":null,"LLM_color_en":"Black","prod_year":null}
 
 === MODEL RULES ===
 16E ≠ 16 (model: "16E"). PRO→Pro, PLUS→Plus, MAX→Max. N+→"N Plus": 15+→"15 Plus" | 16+→"16 Plus" | 17+→"17 Plus".
-iPhone 16Max → model: "16 Pro Max"
+iPhone 16Max → model: "16 Pro Max", variant: "Pro Max", iPhone never releases a "Max" without "Pro", so if "Max" is mentioned, assume "Pro Max". If "Pro" and "Max" are both mentioned, it's also "Pro Max". If only "Max" is mentioned, it's still "Pro Max".
 "Air" alone → iPhone 17 Air (product_type: "iPhone", model: "17 Air").
 "Air 7"/"iPad Air" → iPad (product_type: "iPad", model: null).
 Samsung: "Galaxy A5 SM-A520F 3GB/32GB" → model:"A5", code:"SM-A520F", ram:"3GB", storage:"32GB"
@@ -380,9 +379,9 @@ async def step2_match_color(
 
 
 def _is_iphone(product: dict) -> bool:
-    brand    = (product.get("LLM_brand") or "").lower()
+    brand    = (product.get("brand") or "").lower()
     line     = (product.get("product_type") or "").lower()
-    category = (product.get("LLM_category") or "").lower()
+    category = (product.get("category") or "").lower()
     return brand == "apple" and "iphone" in line and category == "phone"
 
 
