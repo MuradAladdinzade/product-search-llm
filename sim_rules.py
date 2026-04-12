@@ -480,8 +480,10 @@ def _from_text(text: str) -> Optional[SimCardType]:
         (has_1sim and has_esim)
         or "sim-esim" in c or "esim-sim" in c
         or "sim/esim" in c or "esim/sim" in c
+        or "sim+esim" in c or "esim+sim" in c
         or "сим-есим" in c or "есим-сим" in c
         or "сим/есим" in c or "есим/сим" in c
+        or "сим+есим" in c or "есим+сим" in c
     )
 
     if has_2sim:          return SimCardType.PHYSICAL_DUAL
