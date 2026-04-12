@@ -46,7 +46,7 @@ DB_POOL_MAX  = 10   # max connections in pool
 
 # DB query — adjust table/column names to match your schema
 # DB query — adjust table/column names to match your schema
-DB_TABLE              = "ai_product.products"
+DB_TABLE              = "public.products"
 DB_COL_PRODUCT_LINE   = "product_type"
 DB_COL_MODEL_NAME     = "model"
 DB_COL_CATEGORY       = "category"
@@ -306,13 +306,13 @@ async def fetch_official_colors(
     pool: asyncpg.Pool,
     model_name: Optional[str],
 ) -> list[str]:
-    """Query ai_product.products for official color names for this model."""
+    """Query public.products for official color names for this model."""
     if not model_name:
         return []
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT DISTINCT color
-            FROM   ai_product.products
+            FROM   public.products
             WHERE  "model" = $1
               AND  color IS NOT NULL
               AND product_type ILIKE 'iPhone'
