@@ -123,8 +123,9 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
                               //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
-                              //   "sim+esim"  / "esim+sim"    → "PHYSICAL_PLUS_ESIM" 
-                              //   "sim plus esim"  / "esim plus sim"    → "PHYSICAL_PLUS_ESIM" 
+                              //   "sim+esim"/"esim+sim"    → "PHYSICAL_PLUS_ESIM" 
+                              //   sim+esim/esim+sim    → "PHYSICAL_PLUS_ESIM" 
+                              //   "sim plus esim"/"esim plus sim"    → "PHYSICAL_PLUS_ESIM" 
                               //   "sim-esim"/"сим-есим" → "PHYSICAL_PLUS_ESIM"
                               //   "esim-sim"/"есим-сим" → "PHYSICAL_PLUS_ESIM"
                               //   "1sim/esim"/"сим/есим" → "PHYSICAL_PLUS_ESIM"
