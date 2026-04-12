@@ -107,7 +107,7 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "quantity":         1,      // Positive integer, default 1
   "price":            0,      // Float, default 0
   "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything or omit anything (don't do: 17+ 128 Черный 1  64 500 -> requestedText: "17 128 Черный 1  64 500", keep it as is: "17+ 128 Черный 1  64 500")
-  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY
+  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY | if multiple countries mentioned for the product, take the first country always.
   "brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
   "product_type":     "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
   "category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
