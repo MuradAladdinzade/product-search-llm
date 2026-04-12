@@ -135,7 +135,7 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
                               //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
                               //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
                               //   "1sim"/"1 сим" alone                         → "PHYSICAL_PLUS_ESIM"
-                              //   if sim and esim mentioned together in any format → "PHYSICAL_PLUS_ESIM" (e.g. "1sim"+"esim" / "sim-esim" / "esim-sim" / "sim+esim"/"esim+sim" / "sim/esim" / "сим-есим" / "сим/есим")
+                              //   if "sim" and "esim" mentioned together in any format → "PHYSICAL_PLUS_ESIM" (e.g. "1sim"+"esim" / "sim-esim" / "esim-sim" / "sim+esim"/"esim+sim" / "sim/esim" / "сим-есим" / "сим/есим")
 
                               //   "esim"/"есим"/"только esim"/"только есим" alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
                               //   "Iphone 17 Air"/"Айфон 17 Эйр"/"Iphone Air" → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
