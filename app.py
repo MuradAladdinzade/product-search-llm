@@ -128,7 +128,8 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
                               //   "1sim/esim"/"сим/есим" → "PHYSICAL_PLUS_ESIM"
                               //   "1sim"/"1сим"           → "PHYSICAL_PLUS_ESIM"
                               //   "1 sim"/"1 сим"           → "PHYSICAL_PLUS_ESIM"
-                              //   "1sim"+"esim" / "sim-esim" / "esim-sim"     → "PHYSICAL_PLUS_ESIM"  
+                              //   "1sim"+"esim" / "sim-esim" / "esim-sim" / "sim+esim"  / "esim+sim"    → "PHYSICAL_PLUS_ESIM"  
+                              //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
                               //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
                               //   "1sim"/"1 сим" alone                         → "PHYSICAL_PLUS_ESIM" ← check FIRST
                               //   "esim"/"есим"/"только esim"/"только есим" alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
