@@ -224,7 +224,6 @@ async def _llm_call(system: str, user: str, max_tokens: int = 8192, cache: bool 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (429, 503, 529) and attempt < 3:
                 wait = 10 * (attempt + 1)
-                logger.warning("LLM rate limited (%d), retrying in %ds...", e.response.status_code, wait)
                 await asyncio.sleep(wait)
                 continue
             raise
@@ -258,13 +257,6 @@ async def _llm_call_inner(system: str, user: str, max_tokens: int = 8192, cache:
             resp.raise_for_status()
             data  = resp.json()
             usage = data.get("usage", {})
-            logger.info(
-                "Tokens [anthropic] — input: %d | cache_created: %d | cache_read: %d | output: %d",
-                usage.get("input_tokens", 0),
-                usage.get("cache_creation_input_tokens", 0),
-                usage.get("cache_read_input_tokens", 0),
-                usage.get("output_tokens", 0),
-            )
             return data["content"][0]["text"].strip()
 
         elif LLM_PROVIDER == "openai":
@@ -301,20 +293,9 @@ async def _llm_call_inner(system: str, user: str, max_tokens: int = 8192, cache:
             data  = resp.json()
             usage = data.get("usage", {})
             if is_gpt5:
-                logger.info(
-                    "Tokens [openai gpt5] — input: %d | output: %d",
-                    usage.get("input_tokens", 0),
-                    usage.get("output_tokens", 0),
-                )
                 # Responses API returns output as a list of content blocks
                 return data["output"][-1]["content"][0]["text"].strip()
             else:
-                logger.info(
-                    "Tokens [openai] — prompt: %d | completion: %d | total: %d",
-                    usage.get("prompt_tokens", 0),
-                    usage.get("completion_tokens", 0),
-                    usage.get("total_tokens", 0),
-                )
                 return data["choices"][0]["message"]["content"].strip()
 
         else:
@@ -345,15 +326,20 @@ async def fetch_official_colors(
 # ── Core pipeline steps ───────────────────────────────────────────────────────
 
 async def step1_extract(text: str) -> list[dict]:
-    """Extract structured products from raw order text. Retries on bad JSON."""
+    """Extract structured products from raw order text. Retries on bad JSON or empty result."""
     for attempt in range(3):
         raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
-        logger.info("Step 1 raw (attempt %d): %r", attempt + 1, raw[:200])
         try:
-            return _parse_json_array(raw)
+            result = _parse_json_array(raw)
+            if not result and attempt < 2:
+                    # Only retry if response was suspiciously short — might be truncated
+                    if len(raw) > 10:
+                        return result  # LLM is confident there are no products
+                    await asyncio.sleep(2)
+                    continue
+            return result
         except Exception as e:
             if attempt < 2:
-                logger.warning("Bad JSON attempt %d, retrying: %s", attempt + 1, e)
                 await asyncio.sleep(2)
                 continue
             raise
@@ -381,7 +367,6 @@ async def step2_match_color(
 
     official_colors = await fetch_official_colors(pool, model_name)
     if not official_colors:
-        logger.warning("No official colors for model: %s", model_name)
         return None
 
     user_msg = json.dumps({
@@ -397,7 +382,6 @@ async def step2_match_color(
         except Exception as e:
             if "429" in str(e) and attempt < 2:
                 wait = 10 * (attempt + 1)
-                logger.warning("Rate limited, retrying in %ds...", wait)
                 await asyncio.sleep(wait)
             else:
                 raise
@@ -431,10 +415,8 @@ async def lifespan(app: FastAPI):
         max_size=DB_POOL_MAX,
         server_settings={"client_encoding": "UTF8"},
     )
-    logger.info("DB pool ready (min=%d max=%d)", DB_POOL_MIN, DB_POOL_MAX)
     yield
     await _pool.close()
-    logger.info("DB pool closed")
 
 
 app = FastAPI(title="Product Parser", version="1.0.0", lifespan=lifespan)
@@ -455,7 +437,6 @@ async def parse(
     if not text.strip():
         raise HTTPException(status_code=400, detail="text must not be empty")
 
-    logger.info("Parsing: %r", text[:100])
 
     # ── Step 1: extract ───────────────────────────────────────────────────────
     try:
@@ -468,10 +449,16 @@ async def parse(
             for line in text.splitlines()
             if line.strip()
         ] or [EnrichedProduct(requestedText=text).model_dump()]
-        logger.warning("Returning %d fallback products", len(fallback))
         return [EnrichedProduct.model_validate(r) for r in fallback]
 
-    logger.info("Step 1 extracted %d products", len(raw_products))
+
+    # If LLM returned empty, return one fallback product per line
+    if not raw_products:
+        raw_products = [
+            {"requestedText": line}
+            for line in text.splitlines()
+            if line.strip()
+        ] or [{"requestedText": text}]
 
     # ── Step 2: SIM + color match concurrently ────────────────────────────────
     async def enrich(raw: dict) -> EnrichedProduct:
@@ -491,9 +478,6 @@ async def parse(
             )
             p.simType     = sim["simType"]
             p.simConflict = sim["simConflict"]
-            if sim["simConflict"]:
-                logger.warning("SIM conflict: %s | text=%s country=%s",
-                               p.requestedText, sim["simExtracted"], sim["simCountry"])
 
             # Color match from DB
             try:
