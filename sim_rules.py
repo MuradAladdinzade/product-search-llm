@@ -364,7 +364,6 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
     ("17", "SG"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("17", "US"): SimCardType.ESIM_ONLY_SINGLE,
     ("17", "VN"): SimCardType.PHYSICAL_PLUS_ESIM,
-    
     # iPhone 17 Air
     ("17 air", "AE"): SimCardType.ESIM_ONLY_SINGLE,
     ("17 air", "AU"): SimCardType.ESIM_ONLY_SINGLE,
@@ -536,8 +535,11 @@ def resolve_sim_type(
             "simCountry":   country_sim,
         }
 
+    # If we have a model but no sim info — default to PHYSICAL_PLUS_ESIM
+    final = best_explicit if best_explicit is not None else SimCardType.PHYSICAL_PLUS_ESIM
+
     return {
-        "simType":      best_explicit,
+        "simType":      final,
         "simConflict":  False,
         "simExtracted": best_explicit,
         "simCountry":   None,
