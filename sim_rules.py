@@ -364,6 +364,7 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
     ("17", "SG"): SimCardType.PHYSICAL_PLUS_ESIM,
     ("17", "US"): SimCardType.ESIM_ONLY_SINGLE,
     ("17", "VN"): SimCardType.PHYSICAL_PLUS_ESIM,
+    
     # iPhone 17 Air
     ("17 air", "AE"): SimCardType.ESIM_ONLY_SINGLE,
     ("17 air", "AU"): SimCardType.ESIM_ONLY_SINGLE,
