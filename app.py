@@ -216,8 +216,23 @@ def _parse_json_array(raw: str) -> list[dict]:
 async def _llm_call(system: str, user: str, max_tokens: int = 8192, cache: bool = False) -> str:
     """
     Call the configured LLM provider (Anthropic or OpenAI).
-    cache=True enables prompt caching — Anthropic only, ignored for OpenAI.
+    Retries on 429/503/529 with exponential backoff.
     """
+    for attempt in range(4):
+        try:
+            return await _llm_call_inner(system, user, max_tokens, cache)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (429, 503, 529) and attempt < 3:
+                wait = 10 * (attempt + 1)
+                logger.warning("LLM rate limited (%d), retrying in %ds...", e.response.status_code, wait)
+                await asyncio.sleep(wait)
+                continue
+            raise
+    raise RuntimeError("LLM call failed after 4 attempts")
+
+
+async def _llm_call_inner(system: str, user: str, max_tokens: int = 8192, cache: bool = False) -> str:
+    """Single attempt LLM call."""
     async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
 
         if LLM_PROVIDER == "anthropic":
@@ -330,9 +345,18 @@ async def fetch_official_colors(
 # ── Core pipeline steps ───────────────────────────────────────────────────────
 
 async def step1_extract(text: str) -> list[dict]:
-    """Extract structured products from raw order text."""
-    raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
-    return _parse_json_array(raw)
+    """Extract structured products from raw order text. Retries on bad JSON."""
+    for attempt in range(3):
+        raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
+        logger.info("Step 1 raw (attempt %d): %r", attempt + 1, raw[:200])
+        try:
+            return _parse_json_array(raw)
+        except Exception as e:
+            if attempt < 2:
+                logger.warning("Bad JSON attempt %d, retrying: %s", attempt + 1, e)
+                await asyncio.sleep(2)
+                continue
+            raise
 
 
 async def step2_match_color(
@@ -437,8 +461,15 @@ async def parse(
     try:
         raw_products = await step1_extract(text)
     except Exception as e:
-        logger.error("Step 1 failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Extraction failed: {e}")
+        logger.error("Step 1 failed after all retries: %s", e)
+        # Return one fallback product per non-empty line instead of crashing
+        fallback = [
+            EnrichedProduct(requestedText=line).model_dump()
+            for line in text.splitlines()
+            if line.strip()
+        ] or [EnrichedProduct(requestedText=text).model_dump()]
+        logger.warning("Returning %d fallback products", len(fallback))
+        return [EnrichedProduct.model_validate(r) for r in fallback]
 
     logger.info("Step 1 extracted %d products", len(raw_products))
 
