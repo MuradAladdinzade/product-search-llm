@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -60,8 +61,26 @@ DB_COL_COLOR          = "color"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(message)s")
-logger = logging.getLogger("app")
+from datetime import datetime as _dt
+
+def _ts() -> str:
+    return _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+
+_uvicorn_logger = logging.getLogger("uvicorn.error")
+_uvicorn_logger.setLevel(logging.INFO)
+
+class _Logger:
+    def info(self, msg, *args):
+        _uvicorn_logger.info(f"[{_ts()}] " + (msg % args if args else msg))
+    def warning(self, msg, *args):
+        _uvicorn_logger.warning(f"[{_ts()}] " + (msg % args if args else msg))
+    def error(self, msg, *args):
+        _uvicorn_logger.error(f"[{_ts()}] " + (msg % args if args else msg))
+
+logger = _Logger()
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -117,8 +136,9 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "ram":          "...",  // RAM only if separate from storage: "8GB" | null
   "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
   "prod_year":         "...",  // Year if mentioned: "2024" | null
-  "productName":      "...",  // Full constructed name: product_type + model + size + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
+  "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
   "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad:   "Mini 7" | "Air" | "Pro 13" | Other:  "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
+  "size":             "...",  // Storage as <N>GB or <N>TB — same as storage but always present if determinable
   "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
                               //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
@@ -212,7 +232,7 @@ def _parse_json_array(raw: str) -> list[dict]:
         raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```")).strip()
     start, end = raw.find("["), raw.rfind("]")
     if start == -1 or end == -1:
-        raise ValueError(f"No JSON array in response: {raw[:200]}")
+        raise ValueError(f"No JSON array in response: {raw}")
     return json.loads(raw[start : end + 1])
 
 
@@ -342,9 +362,10 @@ def _missing_required(products: list[dict]) -> list[tuple[int, list[str]]]:
 
 async def step1_extract(text: str) -> list[dict]:
     """Extract structured products from raw order text. Retries on bad JSON, empty result, or null required fields."""
-    max_attempts = 3
+    max_attempts = 5
     for attempt in range(max_attempts):
         raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
+        logger.info("── STEP 1 LLM raw (attempt %d) ──\n%s", attempt + 1, raw)
         try:
             result = _parse_json_array(raw)
             if not result and attempt < max_attempts - 1:
@@ -360,7 +381,7 @@ async def step1_extract(text: str) -> list[dict]:
                 for idx, nulls in issues:
                     logger.warning(
                         "Step 1 attempt %d/%d — product[%d] has null required fields %s (text=%r)",
-                        attempt + 1, max_attempts, idx, nulls, text[:120],
+                        attempt + 1, max_attempts, idx, nulls, text,
                     )
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(0.5)
@@ -425,6 +446,8 @@ async def step2_match_color(
     if start == -1 or end == -1:
         return None
     matched_color = json.loads(raw[start:end+1]).get("matched_color")
+    logger.info("── STEP 2 color match ── model=%r requested=%r color_en=%r → matched=%r",
+        model_name, requested_text, color_en, matched_color)
     return matched_color
 
 
@@ -442,14 +465,23 @@ _pool: Optional[asyncpg.Pool] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Apply timestamp format to uvicorn.error handlers (runs per worker)
+    _fmt = logging.Formatter("%(asctime)s %(levelname)s — %(message)s")
+    for _h in logging.getLogger("uvicorn.error").handlers:
+        _h.setFormatter(_fmt)
+    for _h in logging.getLogger("uvicorn.access").handlers:
+        _h.setFormatter(logging.Formatter('%(asctime)s %(levelname)s — %(message)s'))
     global _pool
+    logger.info("Starting app worker pid=%s", os.getpid())
     _pool = await asyncpg.create_pool(
         DATABASE_URL,
         min_size=DB_POOL_MIN,
         max_size=DB_POOL_MAX,
         server_settings={"client_encoding": "UTF8"},
     )
+    logger.info("DB pool created pid=%s", os.getpid())
     yield
+    logger.info("Shutting down worker pid=%s", os.getpid())
     await _pool.close()
 
 
@@ -471,6 +503,9 @@ async def parse(
     if not text.strip():
         raise HTTPException(status_code=400, detail="text must not be empty")
 
+    _t0 = asyncio.get_event_loop().time()
+    logger.info("\n" + "="*80)
+    logger.info("── REQUEST ── %r", text)
 
     # ── Step 1: extract ───────────────────────────────────────────────────────
     try:
@@ -484,6 +519,8 @@ async def parse(
             if line.strip()
         ] or [EnrichedProduct(requestedText=text).model_dump()]
         return [EnrichedProduct.model_validate(r) for r in fallback]
+
+    logger.info("── STEP 1 parsed ── %d product(s):\n%s", len(raw_products), json.dumps(raw_products, ensure_ascii=False, indent=2))
 
 
     # If LLM returned empty, return one fallback product per line
@@ -548,9 +585,16 @@ async def parse(
 
     # Run enrichment for all products concurrently
     results = await asyncio.gather(*[enrich(r) for r in raw_products])
-    return list(results)
+    results = list(results)
+
+    out = [r.model_dump() for r in results]
+    _elapsed = asyncio.get_event_loop().time() - _t0
+    logger.info("── FINAL OUTPUT ── %d product(s) in %.2fs:\n%s", len(out), _elapsed, json.dumps(out, ensure_ascii=False, indent=2))
+    logger.info("="*80 + "\n")
+    return results
 
 
 @app.get("/health")
 async def health():
+    logger.info("Health check pid=%s", os.getpid())
     return {"status": "ok"}
