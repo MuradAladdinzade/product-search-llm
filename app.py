@@ -117,9 +117,8 @@ CRITICAL: If any field cannot be determined → return null. Never omit a field.
   "ram":          "...",  // RAM only if separate from storage: "8GB" | null
   "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
   "prod_year":         "...",  // Year if mentioned: "2024" | null
-  "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
+  "productName":      "...",  // Full constructed name: product_type + model + size + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
   "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad:   "Mini 7" | "Air" | "Pro 13" | Other:  "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
-  "size":             "...",  // Storage as <N>GB or <N>TB — same as storage but always present if determinable
   "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
                               //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
@@ -174,6 +173,9 @@ Input: "Pencil Pro 2025 MX2D3 8500"
 
 Input: "16 Pro 256 Black 🇮🇳 54000"
 {"productName":"iPhone 16 Pro 256GB Black","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"brand":"Apple","product_type":"iPhone","category":"phone","model":"16 Pro","variant":"Pro","model_code":null,"size":"256GB","ram":null,"LLM_color_en":"Black","prod_year":null}
+
+Input: "17 Pro Max 1024 ГБ серебристый eSIM : 1 132 17 Pro Max 1024 ГБ синий eSIM : 1 126,8"
+[{"productName":"iPhone 17 Pro Max 1024GB Silver","size":"1024GB","color_from_text":"серебристый","quantity":1,"price":132000,"requestedText":"17 Pro Max 1024 ГБ серебристый eSIM : 1 132","countryCode":null,"simType":"ESIM_ONLY_SINGLE","brand":"Apple","product_type":"iPhone","category":"phone","model":"17 Pro Max","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Silver","prod_year":null},{"productName":"iPhone 17 Pro Max 1024GB Blue","size":"1024GB","color_from_text":"синий","quantity":1,"price":126800,"requestedText":"17 Pro Max 1024 ГБ синий eSIM : 1 126,8","countryCode":null,"simType":"ESIM_ONLY_SINGLE","brand":"Apple","product_type":"iPhone","category":"phone","model":"17 Pro Max","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Blue","prod_year":null}]
 
 === MODEL RULES ===
 16E ≠ 16 (model: "16E"). PRO→Pro, PLUS→Plus, MAX→Max. N+→"N Plus": 15+→"15 Plus" | 16+→"16 Plus" | 17+→"17 Plus".
@@ -326,22 +328,53 @@ async def fetch_official_colors(
 
 # ── Core pipeline steps ───────────────────────────────────────────────────────
 
+REQUIRED_FIELDS = ("productName", "model", "quantity", "price", "requestedText")
+
+def _missing_required(products: list[dict]) -> list[tuple[int, list[str]]]:
+    """Return [(product_index, [missing_field, ...]), ...] for any nulls in required fields."""
+    issues = []
+    for i, p in enumerate(products):
+        nulls = [f for f in REQUIRED_FIELDS if p.get(f) is None]
+        if nulls:
+            issues.append((i, nulls))
+    return issues
+
+
 async def step1_extract(text: str) -> list[dict]:
-    """Extract structured products from raw order text. Retries on bad JSON or empty result."""
-    for attempt in range(3):
+    """Extract structured products from raw order text. Retries on bad JSON, empty result, or null required fields."""
+    max_attempts = 3
+    for attempt in range(max_attempts):
         raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
         try:
             result = _parse_json_array(raw)
-            if not result and attempt < 2:
+            if not result and attempt < max_attempts - 1:
                     # Only retry if response was suspiciously short — might be truncated
                     if len(raw) > 10:
                         return result  # LLM is confident there are no products
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
                     continue
+
+            # Validate required fields are non-null on every product
+            issues = _missing_required(result)
+            if issues:
+                for idx, nulls in issues:
+                    logger.warning(
+                        "Step 1 attempt %d/%d — product[%d] has null required fields %s (text=%r)",
+                        attempt + 1, max_attempts, idx, nulls, text[:120],
+                    )
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                # All retries exhausted — pass to downstream filter to drop invalid products
+                logger.warning(
+                    "Step 1 all %d attempts done, passing to filter — invalid products will be excluded",
+                    max_attempts,
+                )
+
             return result
         except Exception as e:
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(0.5)
                 continue
             raise
 
@@ -460,6 +493,26 @@ async def parse(
             for line in text.splitlines()
             if line.strip()
         ] or [{"requestedText": text}]
+
+    # ── Filter: drop any products still missing required fields after all retries ─
+    _GB_TO_TB = {"1024GB": "1TB", "2048GB": "2TB"}
+    valid_products, dropped = [], []
+    for raw in raw_products:
+        if raw.get("size") in _GB_TO_TB:
+            raw["size"] = _GB_TO_TB[raw["size"]]
+        nulls = [f for f in REQUIRED_FIELDS if raw.get(f) is None]
+        if nulls:
+            logger.warning("Dropping product with null required fields %s: %r", nulls, raw)
+            dropped.append(raw)
+        else:
+            valid_products.append(raw)
+
+    if dropped and not valid_products:
+        # Every product was invalid — return empty list rather than crash
+        logger.error("All %d products dropped due to null required fields", len(dropped))
+        return []
+
+    raw_products = valid_products
 
     # ── Step 2: SIM + color match concurrently ────────────────────────────────
     async def enrich(raw: dict) -> EnrichedProduct:
