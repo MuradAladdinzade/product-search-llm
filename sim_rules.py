@@ -467,30 +467,70 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
 
 # ── Explicit SIM from text ────────────────────────────────────────────────────
 
+# Patterns consumed in order — longer/more specific first to avoid partial matches.
+# Each group is fully consumed before moving to the next check.
+
+_DUAL_PATTERNS = [
+    r'2\s*sim',         # 2sim / 2 sim
+    r'2\s*сим',         # 2сим / 2 сим
+]
+
+_ESIM_PATTERNS = [
+    r'только\s*esim',       # только esim
+    r'только\s*есим',       # только есим
+    r'e\s*-\s*sim',         # e-sim / e - sim
+    r'е\s*-\s*сим',         # е-сим
+    r'\(e\s*-?\s*sim\)',    # (e-sim) / (esim)
+    r'\(е\s*-?\s*сим\)',    # (е-сим)
+    r'esim',                # esim
+    r'есим',                # есим
+    r'е\s+сим',             # е сим (spaced)
+    r'e\s+sim',             # e sim (spaced English)
+]
+
+_SIM_PATTERNS = [
+    r'1\s*sim',             # 1sim / 1 sim
+    r'1\s*сим',             # 1сим / 1 сим
+    r'sim',                 # bare sim
+    r'сим',                 # bare сим
+]
+
+
+def _consume(text: str, patterns: list) -> tuple:
+    """Remove all occurrences of any pattern. Returns (cleaned_text, found_any)."""
+    found = False
+    for pat in patterns:
+        new, n = re.subn(pat, ' ', text, flags=re.IGNORECASE)
+        if n:
+            found = True
+            text = new
+    return text, found
+
+
 def _from_text(text: str) -> Optional[SimCardType]:
-    t, c = text.lower(), text.lower().replace(" ", "")
-    has_esim = "esim" in t or "есим" in t or "только esim" in t or "только есим" in t or "толькоesim" in c or "толькоесим" in c
-    # "sim"/"сим" alone — not preceded by a digit or "e" (to avoid matching "esim", "2sim")
-    has_bare_sim = bool(re.search(r'(?<![0-9e])sim', t) or re.search(r'(?<![0-9])сим', t))
-    has_1sim = "1sim" in c or "1сим" in c or has_bare_sim
-    has_2sim = "2sim" in c or "2сим" in c
+    t = text.lower()
 
-    # Combined sim+esim patterns (check FIRST before esim-only)
-    has_sim_plus_esim = (
-        (has_1sim and has_esim)
-        or "sim-esim" in c or "esim-sim" in c
-        or "sim/esim" in c or "esim/sim" in c
-        or "sim+esim" in c or "esim+sim" in c
-        or "сим-есим" in c or "есим-сим" in c
-        or "сим/есим" in c or "есим/сим" in c
-        or "сим+есим" in c or "есим+сим" in c
-    )
+    # Step 1: check & consume DUAL SIM — must come first
+    t, has_dual = _consume(t, _DUAL_PATTERNS)
+    if has_dual:
+        return SimCardType.PHYSICAL_DUAL
 
-    if has_2sim:          return SimCardType.PHYSICAL_DUAL
-    if has_sim_plus_esim: return SimCardType.PHYSICAL_PLUS_ESIM
-    if has_esim:          return SimCardType.ESIM_ONLY_SINGLE
-    if has_1sim:          return SimCardType.PHYSICAL_PLUS_ESIM
+    # Step 2: check & consume eSIM tokens
+    t, has_esim = _consume(t, _ESIM_PATTERNS)
+
+    # Step 3: check & consume bare SIM tokens on esim-cleaned text
+    # (so "e sim" cannot match both esim and sim)
+    t, has_sim = _consume(t, _SIM_PATTERNS)
+
+    # Step 4: conclude
+    if has_esim and has_sim:
+        return SimCardType.PHYSICAL_PLUS_ESIM
+    if has_esim:
+        return SimCardType.ESIM_ONLY_SINGLE
+    if has_sim:
+        return SimCardType.PHYSICAL_PLUS_ESIM
     return None
+
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

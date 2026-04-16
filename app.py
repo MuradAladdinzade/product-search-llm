@@ -114,57 +114,53 @@ class EnrichedProduct(BaseModel):
 
 # ── Step 1 prompt ─────────────────────────────────────────────────────────────
 
-EXTRACT_PROMPT = """\
-Extract products from the message and return ONLY a JSON array.
+EXTRACT_PROMPT = """You are a product extraction assistant. Follow ALL instructions carefully and precisely.
 
-CRITICAL: Response MUST start with "[" and end with "]". No explanations, no markdown, no preamble.
-CRITICAL: Use judgment to identify product boundaries — usually each line is a different product, but this is not a rule. A single line may contain multiple products (e.g. "16 Pro Black 256GB 🇺🇸 + 17 Air White 128GB"). A new line may also continue the previous product. Always parse by meaning, not by line.
-CRITICAL: If any field cannot be determined → return null. Never omit a field.
+=== STEP 1 — THINK FIRST (do NOT output this) ===
+Before writing any JSON, mentally identify:
+1. How many real products are in the text?
+2. What raw text belongs to each product?
+3. Is each segment actually a real product listing, or just a note/comment/instruction?
+   - Real product: has a recognizable product name, model, or SKU (e.g. "17 Pro 256GB Black 54000")
+   - NOT a product: conversational notes, instructions, prices alone, Russian words like "отложи"/"хорошо"/"привет"/"берём"/"го"/"ок", standalone numbers without context
 
-=== OUTPUT FIELDS ===
+=== STEP 2 — OUTPUT ===
+Return ONLY a JSON array. Response MUST start with "[" and end with "]". No explanations, no markdown, no preamble.
+Every object MUST have ALL fields listed below in EXACTLY this order. Never omit a field. Use null if not determinable.
+
+=== FIELD DEFINITIONS (use this exact order in every object) ===
 {
+  "is_real_product":  true,   // boolean — true if this is a real product listing, false if it is a note/comment/instruction/non-product text
+  "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | null if not a real product
+  "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad: "Mini 7" | "Air" | "Pro 13" | Other: "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
+  "size":             "...",  // Storage as <N>GB or <N>TB | null if not determinable
+  "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize | null if not mentioned
   "quantity":         1,      // Positive integer, default 1
   "price":            0,      // Float, default 0
-  "requestedText":    "...",  // Exact raw text the user wrote for this product — do NOT strip or modify anything or omit anything (don't do: 17+ 128 Черный 1  64 500 -> requestedText: "17 128 Черный 1  64 500", keep it as is: "17+ 128 Черный 1  64 500")
-  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this line (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | Country name explicitly mentioned -> Return 2-letter ISO code ONLY| Country iso code written explicitly -> Return 2-letter ISO code ONLY | if multiple countries mentioned for the product, take the first country always.
-  "brand":        "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc.
-  "product_type":     "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc.
-  "category":     "...",  // phone | laptop | tablet | watch | earbuds | accessory | other
-  "variant":      "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | null
-  "model_code":   "...",  // SKU code: "MW2X3" | "SM-A520F" | null
-  "size":         "...",  // Storage as <N>GB or <N>TB | null — same field as size below, only fill once
-  "ram":          "...",  // RAM only if separate from storage: "8GB" | null
-  "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | if color field is null, then return null
-  "prod_year":         "...",  // Year if mentioned: "2024" | null
-  "productName":      "...",  // Full constructed name: brand + line + model + storage + color. e.g. "iPhone 17 256GB Black" | "Samsung Galaxy A56 256GB Light Gray"
-  "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad:   "Mini 7" | "Air" | "Pro 13" | Other:  "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
-  "size":             "...",  // Storage as <N>GB or <N>TB — same as storage but always present if determinable
-  "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize
+  "requestedText":    "...",  // Exact raw text the user wrote for this segment — do NOT strip or modify anything (keep typos, Russian words, emojis, spacing exactly as written)
+  "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this segment (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | null if not mentioned | if multiple countries, take the first
+  "brand":            "...",  // Apple | Samsung | Garmin | Poco | Dyson | Sony | etc. | null if not a real product
+  "product_type":     "...",  // iPhone | MacBook | iPad | Galaxy | Watch | Forerunner | etc. | null if not a real product
+  "category":         "...",  // phone | laptop | tablet | watch | earbuds | accessory | other | null if not a real product
+  "variant":          "...",  // Pro | Plus | Ultra | Mini | Air | Max | SE | e | null
+  "model_code":       "...",  // SKU code: "MW2X3" | "SM-A520F" | null
+  "ram":              "...",  // RAM only if separate from storage: "8GB" | null
+  "LLM_color_en":     "...",  // Color translated/normalized to English: "белый"→"White" | "синий"→"Blue" | null if no color
+  "prod_year":        "...",  // Year if mentioned: "2024" | null
   "simType":          null    // iPhone only — extract ONLY if explicitly stated in text:
-                              //   "1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
-                              //   "sim+esim"/"esim+sim"    → "PHYSICAL_PLUS_ESIM" 
-                              //   sim+esim/esim+sim    → "PHYSICAL_PLUS_ESIM" 
-                              //   "sim plus esim"/"esim plus sim"    → "PHYSICAL_PLUS_ESIM" 
-                              //   "sim-esim"/"сим-есим" → "PHYSICAL_PLUS_ESIM"
-                              //   "esim-sim"/"есим-сим" → "PHYSICAL_PLUS_ESIM"
-                              //   "1sim/esim"/"сим/есим" → "PHYSICAL_PLUS_ESIM"
-                              //   "1sim"/"1сим"           → "PHYSICAL_PLUS_ESIM"
-                              //   "1 sim"/"1 сим"           → "PHYSICAL_PLUS_ESIM"
-                              //   "1sim"+"esim" / "sim-esim" / "esim-sim"    → "PHYSICAL_PLUS_ESIM"  
-                              //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
-                              //   "sim/esim" / "сим-есим" / "сим/есим"        → "PHYSICAL_PLUS_ESIM"  
-                              //   "1sim"/"1 сим" alone                         → "PHYSICAL_PLUS_ESIM"
-                              //   if "sim" and "esim" mentioned together in any format → "PHYSICAL_PLUS_ESIM" (e.g. "1sim"+"esim" / "sim-esim" / "esim-sim" / "sim+esim"/"esim+sim" / "sim/esim" / "сим-есим" / "сим/есим")
-
-                              //   "esim"/"есим"/"только esim"/"только есим" alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
-                              //   "E-sim"/"e-sim"/"(E-sim)"alone → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
-                              //   "Iphone 17 Air"/"Айфон 17 Эйр"/"Iphone Air" → "ESIM_ONLY_SINGLE" (eSIM only, no physical SIM)
-                              //   "2 sim"/"2 сим"           → "PHYSICAL_DUAL" 
-                              //   "2sim"/"2сим"                               → "PHYSICAL_DUAL"
-                              //   any other sim mention not covered above      → "PHYSICAL_PLUS_ESIM"
-                              //   Nothing mentioned                            → "PHYSICAL_PLUS_ESIM"
-                              //   Always null for non-iPhones
-
+                              //   "sim+esim"/"esim+sim"/"sim-esim"/"esim-sim"/"sim/esim"/"1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
+                              //   "1sim"/"1сим"/"1 sim"/"1 сим" alone → "PHYSICAL_PLUS_ESIM"
+                              //   if "sim" and "esim" mentioned together in any format → "PHYSICAL_PLUS_ESIM"
+                              //   if "sim" and "esim" both mentioned → "PHYSICAL_PLUS_ESIM"
+                              //   "esim"/"есим"/"только esim" alone → "ESIM_ONLY_SINGLE"
+                              //   "E-sim"/"e-sim"/"(E-sim)" alone → "ESIM_ONLY_SINGLE"
+                              //   " e sim " alone → "ESIM_ONLY_SINGLE"
+                              //   "iPhone 17 Air" / "Айфон 17 Эйр" / "iPhone Air" → "ESIM_ONLY_SINGLE"
+                              //   "2sim"/"2сим"/"2 sim"/"2 сим" → "PHYSICAL_DUAL"
+                              //   if "2 sim" or "dual sim" mentioned → "PHYSICAL_DUAL"
+                              //   if not sure, keep it NULL
+                              //   Always return the answer if you are confident, even if it contradicts other fields. Never guess if not sure. If SIM type is not explicitly mentioned, return null — do NOT infer based on model or other factors.  
+                              //   always null for non-iPhones
 }
 
 === QUANTITY ===
@@ -177,36 +173,40 @@ If multiple prices appear, take the lowest one. e.g. "54500 1шт ? 54700" → p
 
 === REQUESTEDTEXT ===
 Keep exactly as the user wrote it — do NOT strip, clean, or modify anything.
-Copy the raw text for this product as-is, including typos, Russian words, emojis, spacing.
+Copy the raw text for this segment as-is, including typos, Russian words, emojis, spacing.
 
-=== variant ===
-model->variant: variant should contain non-numeric part of model
-"16 Pro"->Pro | "55"->Null | "13 Mini"->Mini | "14 Plus"->Plus | "15 Pro Max"->Pro Max | "17e"->e | "S25 Ultra"->Ultra | "16e"->e
-
-
-=== EXAMPLES ===
-Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
-{"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","size":"128GB","color_from_text":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","countryCode":null,"simType":null,"brand":"Apple","product_type":"iPad","category":"tablet","model":"Mini 7","variant":"Mini","model_code":"MXN63","size":"128GB","ram":null,"LLM_color_en":"Space Gray","prod_year":null}
-
-Input: "Pencil Pro 2025 MX2D3 8500"
-{"productName":"Pencil Pro 2025 MX2D3","size":null,"color_from_text":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3","countryCode":null,"simType":null,"brand":"Apple","product_type":"Pencil","category":"accessory","model":null,"variant":"Pro","model_code":"MX2D3","size":null,"ram":null,"LLM_color_en":null,"prod_year":"2025"}
-
-Input: "16 Pro 256 Black 🇮🇳 54000"
-{"productName":"iPhone 16 Pro 256GB Black","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","simType":null,"brand":"Apple","product_type":"iPhone","category":"phone","model":"16 Pro","variant":"Pro","model_code":null,"size":"256GB","ram":null,"LLM_color_en":"Black","prod_year":null}
-
-Input: "17 Pro Max 1024 ГБ серебристый eSIM : 1 132 17 Pro Max 1024 ГБ синий eSIM : 1 126,8"
-[{"productName":"iPhone 17 Pro Max 1024GB Silver","size":"1024GB","color_from_text":"серебристый","quantity":1,"price":132000,"requestedText":"17 Pro Max 1024 ГБ серебристый eSIM : 1 132","countryCode":null,"simType":"ESIM_ONLY_SINGLE","brand":"Apple","product_type":"iPhone","category":"phone","model":"17 Pro Max","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Silver","prod_year":null},{"productName":"iPhone 17 Pro Max 1024GB Blue","size":"1024GB","color_from_text":"синий","quantity":1,"price":126800,"requestedText":"17 Pro Max 1024 ГБ синий eSIM : 1 126,8","countryCode":null,"simType":"ESIM_ONLY_SINGLE","brand":"Apple","product_type":"iPhone","category":"phone","model":"17 Pro Max","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Blue","prod_year":null}]
+=== VARIANT ===
+model→variant: variant should contain non-numeric part of model
+"16 Pro"→"Pro" | "55"→null | "13 Mini"→"Mini" | "14 Plus"→"Plus" | "15 Pro Max"→"Pro Max" | "17e"→"e" | "S25 Ultra"→"Ultra" | "16e"→"e"
 
 === MODEL RULES ===
 16E ≠ 16 (model: "16E"). PRO→Pro, PLUS→Plus, MAX→Max. N+→"N Plus": 15+→"15 Plus" | 16+→"16 Plus" | 17+→"17 Plus".
 iPhone 16Max → model: "16 Pro Max", variant: "Pro Max", not "16 Max". iPhone never releases a "Max" variant without "Pro". If "Max" is mentioned → always assume "Pro Max".
 "Air" alone → iPhone 17 Air (product_type: "iPhone", model: "17 Air").
 "Air 7"/"iPad Air" → iPad (product_type: "iPad", model: null).
-Samsung: "Galaxy A5 SM-A520F 3GB/32GB" → model:"A5", code:"SM-A520F", ram:"3GB", storage:"32GB"
- 
-=== MODEL CODE vs MODEL NAME ===
-model_name: human-readable id — "16 Pro" | "A5" | "Pro 14" | "Forerunner 55"
-model_code: hardware SKU — "SM-A520F" | "MW2X3" | "MH9J4" (always separate)
+Samsung: "Galaxy A5 SM-A520F 3GB/32GB" → model:"A5", model_code:"SM-A520F", ram:"3GB", size:"32GB"
+
+=== FIELD NOTES ===
+- model: human-readable model id — "16 Pro" | "A5" | "Pro 14" | "Forerunner 55" | null if not determinable
+- model_code: hardware SKU only — "SM-A520F" | "MW2X3" | "MH9J4" | null if not present. Always separate from model.
+- size: storage only — "128GB" | "1TB". Never put RAM here.
+- ram: RAM only if explicitly separate from storage — "8GB" | null
+
+=== EXAMPLES ===
+Input: "iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700"
+[{"is_real_product":true,"productName":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63","model":"Mini 7","size":"128GB","color_from_text":"Space Gray","quantity":1,"price":35700,"requestedText":"iPad Mini 7 128GB Space Gray Wi-Fi MXN63 35700","countryCode":null,"brand":"Apple","product_type":"iPad","category":"tablet","variant":"Mini","model_code":"MXN63","ram":null,"LLM_color_en":"Space Gray","prod_year":null,"simType":null}]
+
+Input: "Pencil Pro 2025 MX2D3 8500"
+[{"is_real_product":true,"productName":"Apple Pencil Pro 2025","model":null,"size":null,"color_from_text":null,"quantity":1,"price":8500,"requestedText":"Pencil Pro 2025 MX2D3 8500","countryCode":null,"brand":"Apple","product_type":"Pencil","category":"accessory","variant":"Pro","model_code":"MX2D3","ram":null,"LLM_color_en":null,"prod_year":"2025","simType":null}]
+
+Input: "16 Pro 256 Black 🇮🇳 54000"
+[{"is_real_product":true,"productName":"iPhone 16 Pro 256GB Black","model":"16 Pro","size":"256GB","color_from_text":"Black","quantity":1,"price":54000,"requestedText":"16 Pro 256 Black 🇮🇳 54000","countryCode":"IN","brand":"Apple","product_type":"iPhone","category":"phone","variant":"Pro","model_code":null,"ram":null,"LLM_color_en":"Black","prod_year":null,"simType":null}]
+
+Input: "17 Pro Max 1024 ГБ серебристый eSIM : 1 132 17 Pro Max 1024 ГБ синий eSIM : 1 126,8"
+[{"is_real_product":true,"productName":"iPhone 17 Pro Max 1024GB Silver","model":"17 Pro Max","size":"1024GB","color_from_text":"серебристый","quantity":1,"price":132000,"requestedText":"17 Pro Max 1024 ГБ серебристый eSIM : 1 132","countryCode":null,"brand":"Apple","product_type":"iPhone","category":"phone","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Silver","prod_year":null,"simType":"ESIM_ONLY_SINGLE"},{"is_real_product":true,"productName":"iPhone 17 Pro Max 1024GB Blue","model":"17 Pro Max","size":"1024GB","color_from_text":"синий","quantity":1,"price":126800,"requestedText":"17 Pro Max 1024 ГБ синий eSIM : 1 126,8","countryCode":null,"brand":"Apple","product_type":"iPhone","category":"phone","variant":"Pro Max","model_code":null,"ram":null,"LLM_color_en":"Blue","prod_year":null,"simType":"ESIM_ONLY_SINGLE"}]
+
+Input: "iPhone 17 256gb Black sim+esim\n65 отложи"
+[{"is_real_product":true,"productName":"iPhone 17 256GB Black","model":"17","size":"256GB","color_from_text":"Black","quantity":1,"price":0,"requestedText":"iPhone 17 256gb Black sim+esim","countryCode":null,"brand":"Apple","product_type":"iPhone","category":"phone","variant":null,"model_code":null,"ram":null,"LLM_color_en":"Black","prod_year":null,"simType":"PHYSICAL_PLUS_ESIM"},{"is_real_product":false,"productName":null,"model":null,"size":null,"color_from_text":null,"quantity":1,"price":0,"requestedText":"65 отложи","countryCode":null,"brand":null,"product_type":null,"category":null,"variant":null,"model_code":null,"ram":null,"LLM_color_en":null,"prod_year":null,"simType":null}]
 """
 
 # ── Step 2 color prompt ───────────────────────────────────────────────────────
@@ -348,56 +348,131 @@ async def fetch_official_colors(
 
 # ── Core pipeline steps ───────────────────────────────────────────────────────
 
-REQUIRED_FIELDS = ("productName", "model", "quantity", "price", "requestedText")
+REQUIRED_FIELDS = ("model", "quantity", "price", "requestedText")  # kept for backward compat
 
-def _missing_required(products: list[dict]) -> list[tuple[int, list[str]]]:
-    """Return [(product_index, [missing_field, ...]), ...] for any nulls in required fields."""
-    issues = []
-    for i, p in enumerate(products):
-        nulls = [f for f in REQUIRED_FIELDS if p.get(f) is None]
-        if nulls:
-            issues.append((i, nulls))
-    return issues
+# Required fields by product type — used for retry validation
+IPHONE_REQUIRED     = ("model", "quantity", "price", "requestedText")
+NON_IPHONE_REQUIRED = ("quantity", "price", "requestedText")
+
+# Final drop required fields — checked after productName fallback is applied
+IPHONE_FINAL_REQUIRED     = ("model", "quantity", "price", "requestedText")
+NON_IPHONE_FINAL_REQUIRED = ("quantity", "price", "requestedText", "productName")
+
+
+def _is_iphone_dict(p: dict) -> bool:
+    """Check if a raw dict is an iPhone product."""
+    return (
+        (p.get("brand") or "").lower() == "apple"
+        and "iphone" in (p.get("product_type") or "").lower()
+        and (p.get("category") or "").lower() == "phone"
+    )
+
+
+def _missing_required_single(p: dict) -> list[str]:
+    """Return list of null required fields for a single product dict (type-aware)."""
+    fields = IPHONE_REQUIRED if _is_iphone_dict(p) else NON_IPHONE_REQUIRED
+    return [f for f in fields if p.get(f) is None]
+
+
+async def _extract_single(requested_text: str, is_iphone: bool, max_attempts: int) -> dict:
+    """
+    Retry extraction for a single product by its requestedText.
+    Returns the best result after all attempts.
+    """
+    fields = IPHONE_REQUIRED if is_iphone else NON_IPHONE_REQUIRED
+    best = None
+    for attempt in range(max_attempts):
+        raw = await _llm_call(EXTRACT_PROMPT, requested_text, max_tokens=1024, cache=False)
+        logger.info("── STEP 1 retry (attempt %d/%d) for %r ──\n%s", attempt + 1, max_attempts, requested_text[:60], raw)
+        try:
+            results = _parse_json_array(raw)
+            if not results:
+                await asyncio.sleep(0.5)
+                continue
+            p = results[0]
+            nulls = [f for f in fields if p.get(f) is None]
+            if not nulls:
+                return p
+            best = p
+            logger.warning("Retry attempt %d/%d — still null fields %s for %r", attempt + 1, max_attempts, nulls, requested_text[:60])
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning("Retry attempt %d/%d failed: %s", attempt + 1, max_attempts, e)
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(0.5)
+    return best or {}
 
 
 async def step1_extract(text: str) -> list[dict]:
-    """Extract structured products from raw order text. Retries on bad JSON, empty result, or null required fields."""
+    """
+    Extract structured products from raw order text.
+    1. First call: full text → get all products with is_real_product flag
+    2. Non-real products → dropped immediately, no retry
+    3. Real products with null required fields → retried individually by requestedText
+    4. Order preserved by Python, not LLM
+    """
     max_attempts = 5
+
+    # ── First pass: full text ─────────────────────────────────────────────────
+    first_result = []
     for attempt in range(max_attempts):
         raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
         logger.info("── STEP 1 LLM raw (attempt %d) ──\n%s", attempt + 1, raw)
         try:
-            result = _parse_json_array(raw)
-            if not result and attempt < max_attempts - 1:
-                    # Only retry if response was suspiciously short — might be truncated
-                    if len(raw) > 10:
-                        return result  # LLM is confident there are no products
-                    await asyncio.sleep(0.5)
-                    continue
-
-            # Validate required fields are non-null on every product
-            issues = _missing_required(result)
-            if issues:
-                for idx, nulls in issues:
-                    logger.warning(
-                        "Step 1 attempt %d/%d — product[%d] has null required fields %s (text=%r)",
-                        attempt + 1, max_attempts, idx, nulls, text,
-                    )
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(0.5)
-                    continue
-                # All retries exhausted — pass to downstream filter to drop invalid products
-                logger.warning(
-                    "Step 1 all %d attempts done, passing to filter — invalid products will be excluded",
-                    max_attempts,
-                )
-
-            return result
+            first_result = _parse_json_array(raw)
+            if not first_result:
+                if len(raw) > 10:
+                    return []  # LLM is confident there are no products
+                await asyncio.sleep(0.5)
+                continue
+            break  # got a parseable result
         except Exception as e:
             if attempt < max_attempts - 1:
                 await asyncio.sleep(0.5)
                 continue
             raise
+
+    if not first_result:
+        return []
+
+    # ── Per-product processing: preserve original order ───────────────────────
+    final_results = []
+    retry_tasks = []  # (original_index, product) pairs needing retry
+
+    for i, p in enumerate(first_result):
+        is_real = p.get("is_real_product", True)  # default True if field missing
+
+        if not is_real:
+            logger.info("Skipping non-real product at index %d: requestedText=%r", i, p.get("requestedText", "")[:60])
+            continue  # drop, no retry
+
+        nulls = _missing_required_single(p)
+        if not nulls:
+            final_results.append((i, p))  # good, keep as-is
+        else:
+            logger.warning("Real product[%d] has null required fields %s — will retry individually", i, nulls)
+            retry_tasks.append((i, p))
+
+    # ── Retry individually for real products with missing fields ──────────────
+    if retry_tasks:
+        retried = await asyncio.gather(*[
+            _extract_single(
+                p.get("requestedText") or text,
+                is_iphone=_is_iphone_dict(p),
+                max_attempts=3 if _is_iphone_dict(p) else 2,
+            )
+            for _, p in retry_tasks
+        ])
+        for (i, _), retried_p in zip(retry_tasks, retried):
+            if retried_p:
+                final_results.append((i, retried_p))
+            else:
+                logger.warning("Retry failed for product[%d], dropping", i)
+
+    # ── Sort by original index to preserve order ──────────────────────────────
+    final_results.sort(key=lambda x: x[0])
+    return [p for _, p in final_results]
 
 
 async def step2_match_color(
@@ -531,13 +606,22 @@ async def parse(
             if line.strip()
         ] or [{"requestedText": text}]
 
-    # ── Filter: drop any products still missing required fields after all retries ─
+    # ── Filter: normalize size, strip internal fields, drop products missing required fields ─
     _GB_TO_TB = {"1024GB": "1TB", "2048GB": "2TB"}
     valid_products, dropped = [], []
     for raw in raw_products:
+        # Normalize size
         if raw.get("size") in _GB_TO_TB:
             raw["size"] = _GB_TO_TB[raw["size"]]
-        nulls = [f for f in REQUIRED_FIELDS if raw.get(f) is None]
+        # Strip is_real_product — internal field, never exposed in API response
+        raw.pop("is_real_product", None)
+        # Build productName fallback for non-iPhones before validation
+        if not _is_iphone_dict(raw) and not raw.get("productName"):
+            parts = [raw.get("product_type"), raw.get("model"), raw.get("size"), raw.get("color_from_text")]
+            raw["productName"] = " ".join(p for p in parts if p) or None
+        # Validate required fields (type-aware)
+        final_required = IPHONE_FINAL_REQUIRED if _is_iphone_dict(raw) else NON_IPHONE_FINAL_REQUIRED
+        nulls = [f for f in final_required if raw.get(f) is None]
         if nulls:
             logger.warning("Dropping product with null required fields %s: %r", nulls, raw)
             dropped.append(raw)
