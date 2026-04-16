@@ -151,15 +151,12 @@ Every object MUST have ALL fields listed below in EXACTLY this order. Never omit
                               //   "sim+esim"/"esim+sim"/"sim-esim"/"esim-sim"/"sim/esim"/"1sim"+"esim"/"сим"+"есим" → "PHYSICAL_PLUS_ESIM"
                               //   "1sim"/"1сим"/"1 sim"/"1 сим" alone → "PHYSICAL_PLUS_ESIM"
                               //   if "sim" and "esim" mentioned together in any format → "PHYSICAL_PLUS_ESIM"
-                              //   if "sim" and "esim" both mentioned → "PHYSICAL_PLUS_ESIM"
                               //   "esim"/"есим"/"только esim" alone → "ESIM_ONLY_SINGLE"
                               //   "E-sim"/"e-sim"/"(E-sim)" alone → "ESIM_ONLY_SINGLE"
-                              //   " e sim " alone → "ESIM_ONLY_SINGLE"
                               //   "iPhone 17 Air" / "Айфон 17 Эйр" / "iPhone Air" → "ESIM_ONLY_SINGLE"
                               //   "2sim"/"2сим"/"2 sim"/"2 сим" → "PHYSICAL_DUAL"
-                              //   if "2 sim" or "dual sim" mentioned → "PHYSICAL_DUAL"
-                              //   if not sure, keep it NULL
-                              //   Always return the answer if you are confident, even if it contradicts other fields. Never guess if not sure. If SIM type is not explicitly mentioned, return null — do NOT infer based on model or other factors.  
+                              //   any other sim mention → "PHYSICAL_PLUS_ESIM"
+                              //   nothing mentioned → "PHYSICAL_PLUS_ESIM"
                               //   always null for non-iPhones
 }
 
@@ -415,9 +412,13 @@ async def step1_extract(text: str) -> list[dict]:
     max_attempts = 5
 
     # ── First pass: full text ─────────────────────────────────────────────────
+    # Estimate output tokens: each non-empty line ≈ 1 product ≈ 300 tokens
+    _lines = [l for l in text.splitlines() if l.strip()]
+    _max_tokens = max(4096, min(16384, len(_lines) * 350))
+
     first_result = []
     for attempt in range(max_attempts):
-        raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=8192, cache=True)
+        raw = await _llm_call(EXTRACT_PROMPT, text, max_tokens=_max_tokens, cache=True)
         logger.info("── STEP 1 LLM raw (attempt %d) ──\n%s", attempt + 1, raw)
         try:
             first_result = _parse_json_array(raw)
