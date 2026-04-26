@@ -471,28 +471,34 @@ SIM_LOOKUP: dict[tuple[str, str], SimCardType] = {
 # Each group is fully consumed before moving to the next check.
 
 _DUAL_PATTERNS = [
-    r'2\s*sim',         # 2sim / 2 sim
-    r'2\s*сим',         # 2сим / 2 сим
+    r'\b2\s*sim\b',                # 2sim / 2 sim
+    r'\b2\s*сим\b',                # 2сим / 2 сим
+    r'\bdual\s*sim\b',             # dual sim / dualsim
+    r'\bdual\s*сим\b',             # dual сим
+    r'\bдвойная\s*sim\b',          # двойная sim
+    r'\bдвойная\s*сим\b',          # двойная сим
+    r'\bдве\s*sim\b',              # две sim
+    r'\bдве\s*сим\b',              # две сим
 ]
 
 _ESIM_PATTERNS = [
-    r'только\s*esim',       # только esim
-    r'только\s*есим',       # только есим
-    r'e\s*-\s*sim',         # e-sim / e - sim
-    r'е\s*-\s*сим',         # е-сим
-    r'\(e\s*-?\s*sim\)',    # (e-sim) / (esim)
-    r'\(е\s*-?\s*сим\)',    # (е-сим)
-    r'esim',                # esim
-    r'есим',                # есим
-    r'е\s+сим',             # е сим (spaced)
-    r'e\s+sim',             # e sim (spaced English)
+    r'\bтолько\s*esim\b',       # только esim
+    r'\bтолько\s*есим\b',       # только есим
+    r'\be\s*-\s*sim\b',         # e-sim / e - sim
+    r'\bе\s*-\s*сим\b',         # е-сим
+    r'\(e\s*-?\s*sim\)',        # (e-sim) / (esim)
+    r'\(е\s*-?\s*сим\)',        # (е-сим)
+    r'\besim\b',                # esim
+    r'\bесим\b',                # есим
+    r'\bе\s+сим\b',             # е сим (spaced)
+    r'\be\s+sim\b',             # e sim (spaced English)
 ]
 
 _SIM_PATTERNS = [
-    r'1\s*sim',             # 1sim / 1 sim
-    r'1\s*сим',             # 1сим / 1 сим
-    r'sim',                 # bare sim
-    r'сим',                 # bare сим
+    r'\b1\s*sim\b',             # 1sim / 1 sim
+    r'\b1\s*сим\b',             # 1сим / 1 сим
+    r'\bsim\b',                 # bare sim
+    r'\bсим\b',                 # bare сим
 ]
 
 
@@ -543,11 +549,17 @@ def resolve_sim_type(
     llm_sim_type: Optional[SimCardType] = None,
 ) -> dict:
     """
-    Priority:
-      1. Country present + in lookup → country wins (flag conflict if mismatch)
-      2. No country → explicit SIM from text
-      3. No text indicator → llm_sim_type (extracted by LLM in Step 1)
-      4. Nothing → null
+    Priority (highest to lowest):
+      1. Country in lookup → wins (hardware reality; flag conflict if LLM/regex disagree)
+      2. LLM-extracted simType → trusted for natural-language understanding
+      3. Regex from requested_text → fallback when LLM returns null
+      4. Default → PHYSICAL_PLUS_ESIM (when iPhone model is known but no sim signal)
+
+    Returns:
+      simType:      final resolved value
+      simConflict:  True if country lookup overrode a different LLM/regex value
+      simExtracted: best non-country signal (LLM if present, else regex)
+      simCountry:   country lookup result (or None)
     """
     null = {"simType": None, "simConflict": False, "simExtracted": None, "simCountry": None}
 
@@ -556,17 +568,19 @@ def resolve_sim_type(
     if not model:
         return null
 
-    explicit      = _from_text(requested_text)
-    cc            = (country_code or "").strip().upper()
-    model_key     = model.strip().lower()
+    cc        = (country_code or "").strip().upper()
+    model_key = model.strip().lower()
 
     # Normalize SE variants → "se" (e.g. "SE 2", "SE 3", "SE (2nd Gen)", "SE (3rd Gen)")
     if model_key.startswith("se"):
         model_key = "se"
 
     country_sim   = SIM_LOOKUP.get((model_key, cc))
-    best_explicit = explicit or llm_sim_type
+    regex_sim     = _from_text(requested_text)
+    # LLM beats regex (regex is fallback only when LLM has nothing)
+    best_explicit = llm_sim_type or regex_sim
 
+    # 1. Country wins if present in lookup
     if country_sim is not None:
         return {
             "simType":      country_sim,
@@ -575,7 +589,8 @@ def resolve_sim_type(
             "simCountry":   country_sim,
         }
 
-    # If we have a model but no sim info — default to PHYSICAL_PLUS_ESIM
+    # 2/3. LLM or regex
+    # 4. Default to PHYSICAL_PLUS_ESIM when model is known but no sim signal
     final = best_explicit if best_explicit is not None else SimCardType.PHYSICAL_PLUS_ESIM
 
     return {

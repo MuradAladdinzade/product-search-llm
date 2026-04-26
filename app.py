@@ -135,7 +135,7 @@ Every object MUST have ALL fields listed below in EXACTLY this order. Never omit
   "model":            "...",  // iPhone: "16+" → "16 Plus" | "17" | "16 Pro" | "17 Pro Max" | "17 Air" | "17e" | "13 Mini" | "14 Plus" | iPad: "Mini 7" | "Air" | "Pro 13" | Other: "A56" | "S25 Ultra" | "Pro 14" | "Forerunner 55" | null if not determinable
   "size":             "...",  // Storage as <N>GB or <N>TB | null if not determinable
   "color_from_text":  "...",  // Raw color EXACTLY as user wrote it, any language — do NOT translate or normalize | null if not mentioned
-  "quantity":         1,      // Positive integer, default 1
+  "quantity":         1,      // Positive integer, default 1, Cannot be Negative Number or Zero. If quantity is not mentioned, default to 1. If quantity is mentioned as part of a price (e.g. "31.5x4"), extract it and use it here, but do NOT modify the price field (keep it as the full price, e.g. "31.5x4" → quantity: 4, price: 31500). If quantity is preceded by a "-", don't include quantity as negative, just extract the number (e.g. "72600-2" → quantity: 2, price: 72600).
   "price":            0,      // Float, default 0
   "requestedText":    "...",  // Exact raw text the user wrote for this segment — do NOT strip or modify anything (keep typos, Russian words, emojis, spacing exactly as written)
   "countryCode":      null,   // 2-letter ISO code ONLY if flag/country explicitly in this segment (e.g. "🇺🇸"→"US", "🇮🇳"→"IN", "🇨🇳"→"CN") | null if not mentioned | if multiple countries, take the first
@@ -152,9 +152,9 @@ Every object MUST have ALL fields listed below in EXACTLY this order. Never omit
                               //   "1sim"/"1сим"/"1 sim"/"1 сим" alone → "PHYSICAL_PLUS_ESIM"
                               //   if "sim" and "esim" mentioned together in any format → "PHYSICAL_PLUS_ESIM"
                               //   "esim"/"есим"/"только esim" alone → "ESIM_ONLY_SINGLE"
-                              //   "E-sim"/"e-sim"/"(E-sim)" alone → "ESIM_ONLY_SINGLE"
+                              //   "E-sim"/"e-sim"/"(E-sim)"/"Dual Esim"/"dual esim"/"2esim"/"2 esim" alone → "ESIM_ONLY_SINGLE"
                               //   "iPhone 17 Air" / "Айфон 17 Эйр" / "iPhone Air" → "ESIM_ONLY_SINGLE"
-                              //   "2sim"/"2сим"/"2 sim"/"2 сим" → "PHYSICAL_DUAL"
+                              //   "2sim"/"2сим"/"2 sim"/"2 сим"/"dual sim"/"двойной сим"/"два сим" → "PHYSICAL_DUAL"
                               //   any other sim mention → "PHYSICAL_PLUS_ESIM"
                               //   nothing mentioned → "PHYSICAL_PLUS_ESIM"
                               //   always null for non-iPhones
