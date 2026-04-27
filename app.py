@@ -414,7 +414,9 @@ async def step1_extract(text: str) -> list[dict]:
     # ── First pass: full text ─────────────────────────────────────────────────
     # Estimate output tokens: each non-empty line ≈ 1 product ≈ 300 tokens
     _lines = [l for l in text.splitlines() if l.strip()]
-    _max_tokens = max(4096, min(16384, len(_lines) * 350))
+    
+    _estimated = max(len(_lines), len(text) // 60)
+    _max_tokens = max(8192, min(96000, _estimated * 350))
 
     first_result = []
     for attempt in range(max_attempts):

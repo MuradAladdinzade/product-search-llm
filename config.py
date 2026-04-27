@@ -57,4 +57,4 @@ elif LLM_PROVIDER == "openai":
 else:
     raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r}. Use 'anthropic' or 'openai'.")
 
-LLM_TIMEOUT = 120.0
+LLM_TIMEOUT = 180.0
