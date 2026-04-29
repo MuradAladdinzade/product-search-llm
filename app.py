@@ -10,6 +10,7 @@ Single endpoint: GET /parse?text=...
   Returns flat JSON array of enriched products.
 """
 
+
 import asyncio
 import json
 import logging
