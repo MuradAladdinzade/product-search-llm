@@ -84,6 +84,20 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
+# ── Input normalization ───────────────────────────────────────────────────────
+
+# Collapses any run of 2+ consecutive newlines (optionally with whitespace
+# between them, like "\n   \n\n") down to a single newline — i.e. removes
+# all blank lines entirely. Lines end up stacked directly on top of each other.
+# Why: the LLM tends to hallucinate when fed empty lines, treating the gap as
+# a structural break and inventing missing items.
+_MULTI_BLANK_LINES_RE = re.compile(r"(?:[ \t]*\n){2,}")
+
+def _normalize_blank_lines(text: str) -> str:
+    """Remove all blank/whitespace-only lines, leaving only a single \\n between content lines."""
+    return _MULTI_BLANK_LINES_RE.sub("\n", text)
+
+
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class EnrichedProduct(BaseModel):
@@ -1139,6 +1153,11 @@ async def parse(
     if not text.strip():
         raise HTTPException(status_code=400, detail="text must not be empty")
 
+    # Collapse runs of 2+ blank lines into a single blank line. Done once here
+    # so every downstream step (LLM prompt, fallback splitlines, logs) sees the
+    # cleaned input.
+    text = _normalize_blank_lines(text)
+
     _t0 = asyncio.get_event_loop().time()
     logger.info("\n" + "="*80)
     logger.info("── REQUEST ── %r", text)
@@ -1237,6 +1256,29 @@ async def parse(
     logger.info("── FINAL OUTPUT ── %d product(s) in %.2fs:\n%s", len(out), _elapsed, json.dumps(out, ensure_ascii=False, indent=2))
     logger.info("="*80 + "\n")
     return results
+
+
+# ── POST /parse ───────────────────────────────────────────────────────────────
+# Convenience endpoint for clients that can't easily send multi-line text via
+# query strings (Swagger UI strips newlines, Postman has issues with `+`, etc.).
+# Accepts raw text directly in the request body — no JSON wrapping, no escaping.
+# Behavior is IDENTICAL to GET /parse — same pipeline, same response, same logs.
+# The GET endpoint is unchanged and remains the primary route for production.
+#
+# Postman usage:
+#   Method: POST
+#   URL:    http://localhost:8000/parse
+#   Body:   raw → Text → paste your multi-line text directly
+
+from fastapi import Request
+
+
+@app.post("/parse", response_model=list[EnrichedProduct])
+async def parse_post(request: Request):
+    """Raw-body variant of /parse. Paste text directly, no JSON needed."""
+    body_bytes = await request.body()
+    text = body_bytes.decode("utf-8", errors="replace")
+    return await parse(text=text)
 
 
 @app.get("/health")
